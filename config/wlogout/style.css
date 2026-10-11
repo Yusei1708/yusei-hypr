@@ -1,0 +1,93 @@
+/* ----------- 💫 yusei-hypr Material 3 wlogout style 💫 -------- */
+
+@import "../waybar/colors.css";
+
+/* Fallback color definitions */
+@define-color text #e3e2e6;
+@define-color surface rgba(28, 27, 31, 0.85);
+@define-color surface_variant rgba(44, 43, 48, 0.85);
+@define-color primary #a8c7fa;
+@define-color border rgba(255, 255, 255, 0.12);
+
+window {
+    font-size: 20pt;
+    color: @text;
+    background-color: @surface;
+}
+
+button {
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 24%;
+    background-color: @surface_variant;
+    color: @text;
+    animation: gradient_f 10s ease-in infinite;
+    transition: all 0.25s cubic-bezier(.05, .9, .1, 1.0), box-shadow 0.2s ease-in-out, background-color 0.2s ease-in-out;
+    border-radius: 24px;
+    border: 1px solid @border;
+    outline-style: none;
+    margin: 14px;
+}
+
+button:focus {
+    background-size: 28%;
+    border: 2px solid @primary;
+    outline-style: none;
+}
+
+button:hover {
+    background-color: @primary; 
+    color: #042f65;
+    background-size: 28%;
+    border-radius: 24px;
+    outline-style: none;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+button span {
+    font-size: 1.1em;
+    font-family: "JetBrains Mono Nerd Font", monospace;
+    font-weight: bold;
+}
+
+#lock {
+    background-image: image(url("./icons/lock.png"));
+}
+#lock:hover {
+    background-image: image(url("./icons/lock-hover.png"));
+}
+
+#logout {
+    background-image: image(url("./icons/logout.png"));
+}
+#logout:hover {
+    background-image: image(url("./icons/logout-hover.png"));
+}
+
+#suspend {
+    background-image: image(url("./icons/sleep.png"));
+}
+#suspend:hover {
+    background-image: image(url("./icons/sleep-hover.png"));
+}
+
+#shutdown {
+    background-image: image(url("./icons/power.png"));
+}
+#shutdown:hover {
+    background-image: image(url("./icons/power-hover.png"));
+}
+
+#reboot {
+    background-image: image(url("./icons/restart.png"));
+}
+#reboot:hover {
+    background-image: image(url("./icons/restart-hover.png"));
+}
+
+#hibernate {
+    background-image: image(url("./icons/hibernate.png"));
+}
+#hibernate:hover {
+    background-image: image(url("./icons/hibernate-hover.png"));
+}

@@ -1,0 +1,15 @@
+/* ==============================================================================
+ * yusei-hypr Dynamic Material You Colors for SwayNC
+ * ============================================================================== */
+
+@define-color primary #a8c7fa;
+@define-color on_primary #042f65;
+@define-color secondary #d3bbff;
+@define-color surface rgba(28, 27, 31, 0.88);
+@define-color surface_variant rgba(44, 43, 48, 0.75);
+@define-color surface_hover rgba(58, 57, 63, 0.9);
+@define-color text #e3e2e6;
+@define-color text_muted #8c9099;
+@define-color border rgba(255, 255, 255, 0.1);
+@define-color error #f2b8b5;
+@define-color on_error #601410;

@@ -1,0 +1,24 @@
+# ==============================================================================
+# yusei-hypr: Git Ignore Rules
+# ==============================================================================
+
+# Testing & QA suites (Local development only)
+tests/
+
+# Internal Agent & Teamwork Workspaces
+.agents/
+.system_generated/
+
+# Python caches & bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs & Runtime Caches
+*.log
+/tmp/
+.cache/
+
+# OS artifacts
+.DS_Store
+Thumbs.db
