@@ -3,7 +3,7 @@
 # ==============================================================================
 
 # Testing & QA suites (Local development only)
-tests/
+/tests/
 
 # Internal Agent & Teamwork Workspaces
 .agents/

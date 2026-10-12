@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cài Đặt Hệ Thống (yusei-settings)</title>
+  <link rel="stylesheet" href="/ui/web/style.css">
+</head>
+<body>
+  <div class="window-container">
+    <!-- =====================================================================
+         Left Navigation Sidebar (Windows 11 Settings Style)
+         ===================================================================== -->
+    <aside class="sidebar">
+      <div class="user-profile-header">
+        <div class="profile-avatar">Y</div>
+        <div class="profile-info">
+          <h3>Yusei Desktop</h3>
+          <p>Arch Linux • Hyprland</p>
+        </div>
+      </div>
+
+      <div class="search-box">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="global-search" placeholder="Tìm kiếm cài đặt...">
+      </div>
+
+      <nav class="nav-menu">
+        <div class="nav-item active" data-page="page-appearance">
+          <span class="nav-icon">🎨</span>
+          <span>Giao diện & Layout</span>
+        </div>
+        <div class="nav-item" data-page="page-hyprland">
+          <span class="nav-icon">⚡</span>
+          <span>Hyprland</span>
+        </div>
+        <div class="nav-item" data-page="page-apps">
+          <span class="nav-icon">📱</span>
+          <span>Ứng dụng</span>
+        </div>
+        <div class="nav-item" data-page="page-devices">
+          <span class="nav-icon">⚙️</span>
+          <span>Thiết bị & Hệ thống</span>
+        </div>
+        <div class="nav-item" data-page="page-backup">
+          <span class="nav-icon">🛡️</span>
+          <span>Sao lưu & Khôi phục</span>
+        </div>
+      </nav>
+
+      <div class="system-status-footer">
+        <span>Bảo vệ cấu hình</span>
+        <span class="sandbox-badge">Safe Verified</span>
+      </div>
+    </aside>
+
+    <!-- =====================================================================
+         Right Main Content Canvas
+         ===================================================================== -->
+    <main class="main-canvas">
+      
+      <!-- PAGE 1: GIAO DIỆN & LAYOUT (GALLERY) -->
+      <section id="page-appearance" class="settings-page">
+        <div class="page-header">
+          <div class="page-title">
+            <h1>Giao diện & Layout</h1>
+            <p>Tùy biến thanh trạng thái, launcher, giao diện terminal và hình nền máy tính</p>
+          </div>
+        </div>
+
+        <!-- Subcategory Filter Tabs -->
+        <div class="subnav-pills" id="appearance-tabs">
+          <div class="pill-tab active" data-category="waybar_layouts">Waybar Layouts</div>
+          <div class="pill-tab" data-category="waybar_styles">Waybar Styles</div>
+          <div class="pill-tab" data-category="rofi_themes">Rofi Launchers</div>
+          <div class="pill-tab" data-category="kitty_themes">Kitty Themes</div>
+          <div class="pill-tab" data-category="hyprland_animations">Animations</div>
+          <div class="pill-tab" data-category="wallpapers">Hình nền 4K</div>
+        </div>
+
+        <!-- Card Gallery Grid -->
+        <div class="gallery-grid" id="gallery-container">
+          <!-- Dynamically populated via app.js -->
+        </div>
+      </section>
+
+      <!-- PAGE 2: HYPRLAND SETTINGS -->
+      <section id="page-hyprland" class="settings-page" style="display: none;">
+        <div class="page-header">
+          <div class="page-title">
+            <h1>Hyprland Compositor</h1>
+            <p>Quản lý hiệu ứng cửa sổ, bo góc, blur, và cấu hình hiển thị</p>
+          </div>
+        </div>
+
+        <div class="settings-section-card">
+          <div class="settings-section-header">
+            <h3>Hiệu Ứng & Bo Góc (Decorations)</h3>
+            <p>Các thông số giao diện End-4 Material 3</p>
+          </div>
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Bo góc cửa sổ (Corner Rounding)</h4>
+              <p>Mặc định 16px theo chuẩn Material 3</p>
+            </div>
+            <span class="card-badge active-badge">16px</span>
+          </div>
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Làm mờ nền (Dual-pass Kawase Blur)</h4>
+              <p>Bật hiệu ứng mờ cho Rofi, Waybar và SwayNC</p>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" checked disabled>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Bóng đổ cửa sổ (Drop Shadows)</h4>
+              <p>Màu bóng tối 25% với bán kính khuếch tán 14px</p>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" checked disabled>
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="settings-section-card">
+          <div class="settings-section-header">
+            <h3>Màn Hình & Đa Màn Hình (Monitors)</h3>
+            <p>Cấu hình phân giải và tự động nhận diện</p>
+          </div>
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Tự động nhận diện màn hình phụ</h4>
+              <p>Áp dụng quy tắc monitors.conf linh hoạt không khóa cứng ID</p>
+            </div>
+            <span class="card-badge active-badge">Auto (preferred, auto, 1)</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- PAGE 3: ỨNG DỤNG MẶC ĐỊNH -->
+      <section id="page-apps" class="settings-page" style="display: none;">
+        <div class="page-header">
+          <div class="page-title">
+            <h1>Ứng dụng Mặc định</h1>
+            <p>Quản lý các công cụ dòng lệnh, trình quản lý file và trình duyệt</p>
+          </div>
+        </div>
+
+        <div class="settings-section-card">
+          <div class="settings-section-header">
+            <h3>Ứng Dụng Cốt Lõi Hệ Thống</h3>
+          </div>
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Terminal ($term)</h4>
+              <p>Terminal giả lập mặc định khi nhấn Super + Enter</p>
+            </div>
+            <span class="card-badge active-badge">Kitty</span>
+          </div>
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Trình quản lý tệp ($files)</h4>
+              <p>Khởi chạy khi nhấn Super + E</p>
+            </div>
+            <span class="card-badge active-badge">Thunar</span>
+          </div>
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Trình duyệt Web ($browser)</h4>
+              <p>Khởi chạy khi nhấn Super + B</p>
+            </div>
+            <span class="card-badge active-badge">Default XDG Browser</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- PAGE 4: THIẾT BỊ & HỆ THỐNG -->
+      <section id="page-devices" class="settings-page" style="display: none;">
+        <div class="page-header">
+          <div class="page-title">
+            <h1>Thiết bị & Hệ thống</h1>
+            <p>Bàn rê chuột, quản lý nguồn và bảo vệ mắt</p>
+          </div>
+        </div>
+
+        <div class="settings-section-card">
+          <div class="settings-section-header">
+            <h3>Bàn Rê Chuột (Touchpad)</h3>
+          </div>
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Chạm để bấm (Tap-to-click)</h4>
+              <p>Kích hoạt chạm nhẹ bề mặt để click chuột trái</p>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" checked disabled>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Cuộn tự nhiên (Natural Scrolling)</h4>
+              <p>Hướng cuộn tương tự màn hình cảm ứng điện thoại</p>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" checked disabled>
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="settings-section-card">
+          <div class="settings-section-header">
+            <h3>Ánh Sáng Đêm & Tiết Kiệm Nguồn</h3>
+          </div>
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Lọc ánh sáng xanh (Night Light)</h4>
+              <p>Chuyển đổi nhiệt độ màu màn hình qua Hyprsunset (Super + N)</p>
+            </div>
+            <button class="btn btn-secondary" onclick="alert('Đã sẵn sàng qua phím Super + N')">Kiểm tra (Super + N)</button>
+          </div>
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Tự động khóa & Tắt màn hình khi nhàn rỗi (Hypridle)</h4>
+              <p>4 giai đoạn: Giảm sáng 150s &rarr; Khóa 300s &rarr; Tắt màn hình 330s &rarr; Suspend 1800s</p>
+            </div>
+            <span class="card-badge active-badge">Hypridle Active</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- PAGE 5: SAO LƯU & KHÔI PHỤC -->
+      <section id="page-backup" class="settings-page" style="display: none;">
+        <div class="page-header">
+          <div class="page-title">
+            <h1>Sao lưu & Khôi phục</h1>
+            <p>Lịch sử snapshot an toàn, hoàn tác 1 chạm và bảo vệ dữ liệu</p>
+          </div>
+          <button class="btn btn-primary" id="btn-create-manual-backup">Tạo bản sao lưu mới</button>
+        </div>
+
+        <div class="settings-section-card">
+          <div class="settings-section-header">
+            <h3>Lịch Sử Snapshots Gần Đây</h3>
+            <p>Mỗi lần áp dụng theme/layout đều được tạo một snapshot riêng kèm manifest.json</p>
+          </div>
+          <div id="snapshots-list-container">
+            <p style="color: var(--text-muted); font-size: 13px;">Đang tải danh sách snapshot...</p>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- =======================================================================
+       5-Stage Modal Safety Dialog
+       ======================================================================= -->
+  <div class="modal-overlay" id="confirm-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-icon-shield">🛡️</div>
+        <div>
+          <h3>Xác Nhận Thay Đổi Cấu Hình</h3>
+          <p style="font-size: 12px; color: var(--text-muted);">Quy trình kiểm tra an toàn 5 bước</p>
+        </div>
+      </div>
+
+      <div class="modal-content-box">
+        <div>
+          <strong style="color: var(--text-main);">Lựa chọn:</strong>
+          <span id="modal-item-name" style="color: var(--accent); font-weight: 600;">[Item Name]</span>
+        </div>
+        
+        <div>
+          <strong>Các file cấu hình sẽ bị thay đổi:</strong>
+          <ul class="affected-files-list" id="modal-affected-files">
+            <!-- Populated via app.js -->
+          </ul>
+        </div>
+
+        <div class="safety-note">
+          <span>✓</span>
+          <span>Một bản snapshot sao lưu sẽ tự động được tạo trước khi áp dụng.</span>
+        </div>
+        <div class="safety-note" style="color: #60cdff;">
+          <span>✓</span>
+          <span>Tất cả các cấu hình khác hoàn toàn được giữ nguyên không đổi.</span>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="modal-btn-cancel">Hủy bỏ</button>
+        <button class="btn btn-primary" id="modal-btn-confirm">Xác Nhận Áp Dụng</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div class="toast" id="toast-notify">
+    <span id="toast-message">Đã áp dụng thành công!</span>
+    <button class="btn btn-secondary" id="toast-btn-undo" style="padding: 4px 10px; font-size: 11px;">Hoàn tác ngay</button>
+  </div>
+
+  <script src="/ui/web/app.js"></script>
+</body>
+</html>

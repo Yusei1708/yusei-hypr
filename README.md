@@ -33,6 +33,7 @@
 [🌟 Highlights](#-highlights) •
 [🏛️ Architecture](#-system-architecture) •
 [🧩 Components](#-component-matrix) •
+[⚙️ Settings App](#-yusei-settings-control-center) •
 [🚀 Installation](#-installation-guide) •
 [🎨 Theming](#-dynamic-theming-engine-material-you) •
 [⌨️ Keybindings](#-keybindings-reference) •
@@ -181,6 +182,7 @@ yusei-hypr/
 
 | Category | Component | Upstream Project | Visual Style & Role |
 | :--- | :--- | :--- | :--- |
+| **Settings Center** | Yusei Settings | Built-in | Windows 11-style Fluent Control Center & Theme Gallery with 5-stage safe apply engine |
 | **Compositor** | Hyprland | [hyprwm/hyprland](https://github.com/hyprwm/hyprland) | Dynamic Wayland compositor, Dwindle layout, physics animations |
 | **Status Bar** | Waybar | [Alexays/Waybar](https://github.com/Alexays/Waybar) | Floating pill islands, workspace pill indicators, reactive notification bell |
 | **App Launcher** | Rofi (Wayland) | [lbonn/rofi](https://github.com/lbonn/rofi) | Centered 16px card layout, dual-column grid, search pill input |
@@ -197,6 +199,61 @@ yusei-hypr/
 | **Screen Capture** | Grim + Slurp + Swappy | [emersion/grim](https://github.com/emersion/grim) | Fullscreen and interactive snipping directly to clipboard and editor |
 | **Vietnamese IME** | Fcitx5 | [fcitx/fcitx5](https://github.com/fcitx/fcitx5) | Vietnamese typing (Unikey/Bamboo), Wayland text-input-v3 support |
 | **Audio Server** | PipeWire | [PipeWire](https://pipewire.org/) | Low-latency audio server with WirePlumber session manager |
+
+---
+
+## ⚙️ Yusei Settings (Control Center)
+
+**yusei-settings** is a modern, extensible Control Center application built specifically for `yusei-hypr`. Designed with the familiarity and intuitive navigation of Windows 11 Settings, it allows you to explore, preview, and switch between dozens of layouts, themes, and system configurations with guaranteed safety.
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│  ⚙️  Yusei Settings                                    —  □  ✕         │
+├───────────────┬────────────────────────────────────────────────────────┤
+│ 🔍 Search     │  Giao diện & Layout                                    │
+│               │  ───────────────────────────────────────────────────  │
+│ 🎨 Giao diện  │  [All (310)] [Waybar (46)] [Rofi (22)] [Kitty (171)]  │
+│ 🪟 Hyprland   │                                                        │
+│ 📱 Ứng dụng   │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
+│ ⚙️ Hệ thống   │  │ [SVG Mockup] │  │ [SVG Mockup] │  │ [Swatches]   │  │
+│ 🛡️ Sao lưu    │  │ Waybar: Top  │  │ Waybar: Bot  │  │ Kitty: Tokyo │  │
+│               │  │ Active ✓     │  │ [Apply]      │  │ [Apply]      │  │
+│               │  └──────────────┘  └──────────────┘  └──────────────┘  │
+└───────────────┴────────────────────────────────────────────────────────┘
+```
+
+### 🌟 Key Features
+- **Extensible Layout & Theme Catalog**:
+  - **Waybar**: 46 layouts (Top, Bottom, Left, Right, Split) & 54 styles with dynamic SVG placement mockups.
+  - **Rofi**: 22 launcher & dialog themes with live card previews.
+  - **Kitty**: 171 curated color themes with dynamic 8-color palette swatches.
+  - **Hyprland**: 17 physics-based animation presets & decoration styles.
+  - **Wallpapers**: 21 high-definition curated backgrounds with thumbnail gallery.
+- **Dual Frontend Architecture**:
+  - **Web / Fluent UI** (`--web`): Windows 11 Fluent Design / dark Mica theme with acrylic effects, responsive sidebar, and search filtering.
+  - **Native GTK4 / Libadwaita** (`--gui`): True native Linux desktop window leveraging `Adw.PreferencesWindow` and `Gtk.FlowBox`.
+  - **CLI Mode** (`--list`): Instant terminal catalog overview and scripting interface.
+- **🛡️ 5-Stage Safe Apply Engine**:
+  Never modifies active configurations blindly. Every layout or theme change follows a strict 5-stage safety workflow:
+  1. **Pre-Apply Summary**: Displays chosen item, domain, and target paths.
+  2. **Impact Analysis**: Exact listing of all configuration files and symlinks that will be touched before any write occurs.
+  3. **Automated Backup Snapshot**: Automatically creates a timestamped snapshot in `~/.config/hypr/backup_settings/` with a complete `manifest.json`.
+  4. **Strict Confirmation Barrier**: Explicit user consent required (`PermissionError` raised if attempted without confirmation).
+  5. **Surgical Modification & 1-Click Rollback**: Modifies only the selected component while preserving all unrelated user customizations, with an instant 1-click Undo/Rollback button.
+
+### 🚀 Launching Settings
+Launch directly from the repository or your application launcher:
+
+```bash
+# Launch Windows 11-style Web Interface (Default: http://localhost:8999)
+./bin/yusei-settings --web
+
+# Launch Native Linux GTK4 / Libadwaita Window
+./bin/yusei-settings --gui
+
+# List all discovered themes and layouts in terminal
+./bin/yusei-settings --list
+```
 
 ---
 
