@@ -175,13 +175,22 @@ APP_TRIGGERS["cava"]="none"
 # 3. Status Checking Helper
 # ------------------------------------------------------------------------------
 declare -A INSTALLED_MAP
+declare -A CACHED_ALL_INSTALLED
 
 check_installed_status() {
+    if command -v pacman &>/dev/null; then
+        while IFS= read -r p; do
+            [ -n "$p" ] && CACHED_ALL_INSTALLED["$p"]=1
+        done < <(pacman -Qq 2>/dev/null || true)
+    fi
+
     for id in "${APP_IDS[@]}"; do
         local all_installed=true
         local pkgs=(${APP_PACKAGES[$id]})
         for pkg in "${pkgs[@]}"; do
-            if ! pacman -Qi "$pkg" &>/dev/null; then
+            if [ -n "${CACHED_ALL_INSTALLED[$pkg]:-}" ]; then
+                continue
+            elif ! pacman -Qi "$pkg" &>/dev/null; then
                 all_installed=false
                 break
             fi
@@ -383,29 +392,40 @@ install_selected_apps() {
         echo -e "${BLUE}Tổng số gói cần cài đặt:${NC} ${#missing_pkgs[@]} gói (${missing_pkgs[*]})"
         echo -e "${BLUE}Trình quản lý gói được sử dụng:${NC} ${BOLD}$helper${NC}"
 
+        local pkgs_to_install=("${missing_pkgs[@]}")
         if [ "$helper" = "pacman" ]; then
             local aur_missing=()
+            local official_missing=()
             for p in "${missing_pkgs[@]}"; do
-                if ! pacman -Si "$p" &>/dev/null; then
+                if pacman -Si "$p" &>/dev/null; then
+                    official_missing+=("$p")
+                else
                     aur_missing+=("$p")
                 fi
             done
             if [ ${#aur_missing[@]} -gt 0 ]; then
                 echo -e "${YELLOW}⚠️ Chú ý: Các gói sau thuộc AUR và không có sẵn trong kho pacman chính thức: ${aur_missing[*]}${NC}"
-                echo -e "${YELLOW}   (Khuyên dùng 'yay' hoặc 'paru' để cài đặt tự động từ AUR)${NC}"
+                echo -e "${YELLOW}   (Khuyên dùng 'yay' hoặc 'paru' để cài đặt tự động từ AUR. Chỉ cài đặt các gói từ kho chính thức)${NC}"
             fi
+            pkgs_to_install=("${official_missing[@]}")
         fi
 
         if [ "$DRY_RUN" = "true" ]; then
             if [ "$helper" = "pacman" ]; then
-                echo -e "${YELLOW}[DRY-RUN] Lệnh cài đặt:${NC} sudo pacman -S --needed --noconfirm ${missing_pkgs[*]}"
+                if [ ${#pkgs_to_install[@]} -gt 0 ]; then
+                    echo -e "${YELLOW}[DRY-RUN] Lệnh cài đặt:${NC} sudo pacman -S --needed --noconfirm ${pkgs_to_install[*]}"
+                else
+                    echo -e "${YELLOW}[DRY-RUN] Không có gói nào từ kho chính thức để cài đặt qua pacman.${NC}"
+                fi
             else
                 echo -e "${YELLOW}[DRY-RUN] Lệnh cài đặt:${NC} $helper -S --needed --noconfirm ${missing_pkgs[*]}"
             fi
         else
             echo -e "${BLUE}:: Đang tiến hành cài đặt gói...${NC}"
             if [ "$helper" = "pacman" ]; then
-                sudo pacman -S --needed --noconfirm "${missing_pkgs[@]}"
+                if [ ${#pkgs_to_install[@]} -gt 0 ]; then
+                    sudo pacman -S --needed --noconfirm "${pkgs_to_install[@]}"
+                fi
             else
                 $helper -S --needed --noconfirm "${missing_pkgs[@]}"
             fi
@@ -667,18 +687,12 @@ main_workflow() {
                 "${tui_args[@]}" \
                 3>&1 1>&2 2>&3) || ret=$?
         elif command -v dialog &>/dev/null; then
-            local dialog_err
-            dialog_err=$(mktemp 2>/dev/null || echo "/tmp/dialog_err_$$")
             choices=$(dialog --stdout --title "yusei-hypr: Cài đặt ứng dụng tùy chọn (5/5)" \
                 --checklist "Dùng Phím Cách (Space) để chọn/bỏ chọn, Mũi Tên để di chuyển, Tab để chọn nút.\n(Các ứng dụng [Đã có] mặc định tắt checkbox để tránh trùng lặp):" \
                 "$box_h" "$box_w" "$list_h" \
                 --ok-label "Cài đặt" \
                 --cancel-label "Bỏ qua" \
-                "${tui_args[@]}" 2>"$dialog_err") || ret=$?
-            if [ "$ret" -ne 0 ] && [ -s "$dialog_err" ]; then
-                choices=$(cat "$dialog_err" 2>/dev/null || true)
-            fi
-            rm -f "$dialog_err" 2>/dev/null || true
+                "${tui_args[@]}") || ret=$?
         fi
 
         if [ "$ret" -eq 0 ]; then
@@ -687,18 +701,26 @@ main_workflow() {
             read -ra selected_ids <<< "$choices_clean"
             install_selected_apps "${selected_ids[@]}"
             exit 0
-        elif [ "$ret" -eq 1 ] || [ "$ret" -eq 255 ]; then
-            # Kiểm tra xem đây là hành động chủ động bấm Cancel (không có lỗi ở stderr) hay là lỗi khởi tạo TUI
+        elif [ "$ret" -eq 1 ]; then
             local trimmed_choices
             trimmed_choices=$(echo "$choices" | tr -d '[:space:]')
             if [ -z "$trimmed_choices" ]; then
-                # Người dùng chọn Cancel / Bỏ qua hoặc nhấn ESC
+                # Người dùng chủ động chọn nút Bỏ qua / Cancel
+                echo -e "${YELLOW}:: Bạn đã chọn bỏ qua cài đặt ứng dụng tùy chọn.${NC}"
+                exit 0
+            fi
+            # Nếu choices chứa chuỗi lỗi từ TUI (ví dụ whiptail lỗi tham số), tự động trôi xuống Fallback CLI
+        elif [ "$ret" -eq 255 ]; then
+            local trimmed_choices
+            trimmed_choices=$(echo "$choices" | tr -d '[:space:]')
+            if [ -z "$trimmed_choices" ]; then
+                # Người dùng nhấn phím ESC
                 echo -e "${YELLOW}:: Bạn đã chọn bỏ qua cài đặt ứng dụng tùy chọn.${NC}"
                 exit 0
             fi
             # Nếu choices chứa chuỗi lỗi từ TUI, tự động trôi xuống Fallback CLI bên dưới
         fi
-        # Nếu TUI bị lỗi khởi tạo hoặc trả về lỗi, tự động trôi xuống Fallback CLI
+        # Nếu TUI bị lỗi khởi tạo hoặc trả về lỗi bất thường, tự động trôi xuống Fallback CLI
     fi
 
     # Trường hợp 3: Fallback hiển thị Menu dòng lệnh thuần Bash
