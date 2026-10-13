@@ -12,40 +12,83 @@ BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${BLUE}:: [4/4] Đang cài đặt các file cấu hình yusei-hypr vào ~/.config...${NC}"
+echo -e "${BLUE}:: [Configs] Đang cài đặt các file cấu hình yusei-hypr vào ~/.config...${NC}"
 
 # Nạp thông tin phần cứng
 HAS_NVIDIA="false"
 if [ -f /tmp/yusei-hypr/detected.env ]; then
+    # shellcheck disable=SC1091
     . /tmp/yusei-hypr/detected.env
 fi
 
 # 1. Tạo thư mục .config nếu chưa có
 mkdir -p "$HOME/.config"
 
-# 2. Sao chép các thư mục cấu hình
+# 2. Sao chép các thư mục cấu hình và bảo vệ dữ liệu người dùng
 CONFIG_DIRS=("hypr" "waybar" "rofi" "kitty" "swaync" "wlogout" "fastfetch" "btop" "cava" "swappy" "wallust" "Kvantum" "qt5ct" "qt6ct")
 
 for dir in "${CONFIG_DIRS[@]}"; do
     if [[ -d "$SCRIPT_DIR/config/$dir" ]]; then
-        rm -rf "$HOME/.config/$dir"
-        cp -a "$SCRIPT_DIR/config/$dir" "$HOME/.config/"
-        echo -e "${GREEN}✓ Đã triển khai: ~/.config/$dir${NC}"
+        if [[ "$dir" == "hypr" && -d "$HOME/.config/hypr" ]]; then
+            # Bảo vệ cấu hình cá nhân của người dùng (UserConfigs và UserScripts)
+            TMP_PRESERVE="/tmp/yusei-hypr/preserve_user_$$"
+            mkdir -p "$TMP_PRESERVE"
+            HAS_USER_CONFIGS=false
+            HAS_USER_SCRIPTS=false
+
+            if [[ -d "$HOME/.config/hypr/UserConfigs" ]]; then
+                cp -a "$HOME/.config/hypr/UserConfigs" "$TMP_PRESERVE/"
+                HAS_USER_CONFIGS=true
+            fi
+
+            if [[ -d "$HOME/.config/hypr/UserScripts" ]]; then
+                cp -a "$HOME/.config/hypr/UserScripts" "$TMP_PRESERVE/"
+                HAS_USER_SCRIPTS=true
+            fi
+
+            # Thay thế thư mục hypr
+            rm -rf "$HOME/.config/hypr"
+            cp -a "$SCRIPT_DIR/config/hypr" "$HOME/.config/"
+
+            # Khôi phục các tùy biến cá nhân của người dùng
+            if [ "$HAS_USER_CONFIGS" = "true" ]; then
+                cp -a "$TMP_PRESERVE/UserConfigs"/* "$HOME/.config/hypr/UserConfigs/" 2>/dev/null || true
+                echo -e "${GREEN}✓ Đã bảo tồn an toàn tùy biến của người dùng tại: ~/.config/hypr/UserConfigs${NC}"
+            fi
+
+            if [ "$HAS_USER_SCRIPTS" = "true" ]; then
+                cp -a "$TMP_PRESERVE/UserScripts"/* "$HOME/.config/hypr/UserScripts/" 2>/dev/null || true
+                echo -e "${GREEN}✓ Đã bảo tồn an toàn script cá nhân tại: ~/.config/hypr/UserScripts${NC}"
+            fi
+
+            rm -rf "$TMP_PRESERVE"
+            echo -e "${GREEN}✓ Đã triển khai an toàn (non-destructive): ~/.config/hypr${NC}"
+        else
+            rm -rf "$HOME/.config/$dir"
+            cp -a "$SCRIPT_DIR/config/$dir" "$HOME/.config/"
+            echo -e "${GREEN}✓ Đã triển khai: ~/.config/$dir${NC}"
+        fi
     fi
 done
 
-# Ensure executable permissions for all copied scripts
-find "$HOME/.config/hypr/scripts" -type f -name "*.sh" -exec chmod +x {} + 2>/dev/null || true
+# Đảm bảo phân quyền thực thi cho toàn bộ script
+if [[ -d "$HOME/.config/hypr/scripts" ]]; then
+    find "$HOME/.config/hypr/scripts" -type f -name "*.sh" -exec chmod +x {} + 2>/dev/null || true
+fi
 if [[ -d "$HOME/.config/hypr/UserScripts" ]]; then
-    find "$HOME/.config/hypr/UserScripts" -type f -name "*.sh" -exec chmod +x {} + 2>/dev/null || true
+    find "$HOME/.config/hypr/UserScripts" -type f \( -name "*.sh" -o -name "*.py" \) -exec chmod +x {} + 2>/dev/null || true
+fi
+if [[ -f "$HOME/.config/hypr/initial-boot.sh" ]]; then
+    chmod +x "$HOME/.config/hypr/initial-boot.sh" 2>/dev/null || true
 fi
 
 # 3. Kích hoạt NVIDIA nếu được phát hiện
 if [ "${HAS_NVIDIA:-false}" = "true" ]; then
     echo -e "${YELLOW}:: Đang kích hoạt nạp nvidia.conf trong hyprland.conf...${NC}"
     if [[ -f "$HOME/.config/hypr/hyprland.conf" ]]; then
-        sed -i 's|# source = ~/.config/hypr/nvidia.conf|source = ~/.config/hypr/nvidia.conf|g' "$HOME/.config/hypr/hyprland.conf"
-        echo -e "${GREEN}✓ Đã kích hoạt cấu hình tối ưu card đồ họa NVIDIA!${NC}"
+        # Khớp chính xác cả "# source = ./nvidia.conf" và "# source = ~/.config/hypr/nvidia.conf"
+        sed -i -E 's|#\s*source\s*=\s*(\./|~/\.config/hypr/)nvidia\.conf|source = ./nvidia.conf|g' "$HOME/.config/hypr/hyprland.conf"
+        echo -e "${GREEN}✓ Đã kích hoạt cấu hình tối ưu card đồ họa NVIDIA trong hyprland.conf!${NC}"
     fi
 fi
 
@@ -55,7 +98,8 @@ mkdir -p "$PICTURES_DIR/wallpapers"
 if [[ -d "$SCRIPT_DIR/assets/wallpapers" ]]; then
     echo -e "${BLUE}:: Đang đồng bộ bộ sưu tập hình nền vào $PICTURES_DIR/wallpapers...${NC}"
     cp -n "$SCRIPT_DIR/assets/wallpapers"/* "$PICTURES_DIR/wallpapers/" 2>/dev/null || true
-    echo -e "${GREEN}✓ Đã cập nhật 20 hình nền nghệ thuật vào $PICTURES_DIR/wallpapers${NC}"
+    WP_COUNT="$(find "$SCRIPT_DIR/assets/wallpapers" -maxdepth 1 -type f 2>/dev/null | wc -l)"
+    echo -e "${GREEN}✓ Đã cập nhật toàn bộ ${WP_COUNT} hình nền nghệ thuật vào $PICTURES_DIR/wallpapers${NC}"
 fi
 
 # Thiết lập hình nền mặc định

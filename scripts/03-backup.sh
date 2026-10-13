@@ -10,7 +10,7 @@ BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${BLUE}:: [3/4] Sao lưu các cấu hình hiện tại để đảm bảo an toàn...${NC}"
+echo -e "${BLUE}:: [Backup] Sao lưu các cấu hình hiện tại để đảm bảo an toàn...${NC}"
 
 BACKUP_ROOT="$HOME/.config/yusei-hypr-backups"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"

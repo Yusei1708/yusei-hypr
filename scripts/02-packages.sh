@@ -3,7 +3,7 @@
 # yusei-hypr: Package Installation Module
 # ==============================================================================
 
-set -e
+set -euo pipefail
 
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
@@ -11,10 +11,17 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-echo -e "${BLUE}:: [2/4] Kiểm tra và cài đặt phần mềm phụ thuộc (Dependencies)...${NC}"
+echo -e "${BLUE}:: [Packages] Kiểm tra và cài đặt phần mềm phụ thuộc (Dependencies)...${NC}"
 
 # Nạp thông tin phần cứng đã quét
+HAS_NVIDIA="false"
+IS_LAPTOP="false"
+KERNEL_PKG="linux"
+KERNEL_HEADERS_PKG="linux-headers"
+IS_ASUS_ROG="false"
+
 if [ -f /tmp/yusei-hypr/detected.env ]; then
+    # shellcheck disable=SC1091
     . /tmp/yusei-hypr/detected.env
 fi
 
@@ -34,13 +41,32 @@ else
 fi
 echo -e "${GREEN}✓ Sử dụng AUR helper: $AUR_HELPER${NC}"
 
-# 2. Danh sách các gói cần thiết
+# 2. Xử lý xung đột PulseAudio vs PipeWire
+echo -e "${BLUE}:: Kiểm tra và loại bỏ các gói PulseAudio gây xung đột...${NC}"
+PULSE_CONFLICTS=()
+for pulse_pkg in pulseaudio pulseaudio-bluetooth pulseaudio-alsa pulseaudio-jack; do
+    if pacman -Qi "$pulse_pkg" &> /dev/null; then
+        PULSE_CONFLICTS+=("$pulse_pkg")
+    fi
+done
+
+if [ ${#PULSE_CONFLICTS[@]} -gt 0 ]; then
+    echo -e "${YELLOW}Phát hiện các gói PulseAudio: ${PULSE_CONFLICTS[*]}${NC}"
+    echo -e "${YELLOW}Đang tháo gỡ an toàn để kích hoạt hệ thống âm thanh hiện đại PipeWire...${NC}"
+    sudo pacman -Rdd --noconfirm "${PULSE_CONFLICTS[@]}"
+    echo -e "${GREEN}✓ Đã giải quyết triệt để xung đột âm thanh PulseAudio!${NC}"
+else
+    echo -e "${GREEN}✓ Không có xung đột âm thanh PulseAudio.${NC}"
+fi
+
+# 3. Danh sách các gói cần thiết chuẩn hóa tương đương JaKooLit
 PACKAGES=(
-    # Core Hyprland
+    # Core Hyprland & Portals
     hyprland
     hypridle
     hyprlock
     xdg-desktop-portal-hyprland
+    xdg-desktop-portal
     polkit-gnome
 
     # Desktop Components (End-4 Material UI)
@@ -49,15 +75,36 @@ PACKAGES=(
     swaync
     swww
     kitty
-    ttf-jetbrains-mono-nerd
 
-    # Audio & Media
+    # Fonts & Icons & Cursors (Aesthetics Parity)
+    ttf-jetbrains-mono-nerd
+    ttf-font-awesome
+    noto-fonts-emoji
+    bibata-cursor-theme
+    papirus-icon-theme
+
+    # Audio & Media (PipeWire Stack)
     pipewire
     wireplumber
     pipewire-audio
     pipewire-pulse
+    pipewire-alsa
+    pipewire-jack
     pavucontrol
     playerctl
+
+    # Bluetooth Stack
+    bluez
+    bluez-utils
+    blueman
+
+    # File Manager & Thumbnailers (Thunar Suite)
+    thunar
+    tumbler
+    ffmpegthumbnailer
+    thunar-archive-plugin
+    gvfs
+    xarchiver
 
     # System Controls & Utilities
     brightnessctl
@@ -65,7 +112,6 @@ PACKAGES=(
     slurp
     wl-clipboard
     cliphist
-    thunar
     bc
     jq
     socat
@@ -90,12 +136,27 @@ PACKAGES=(
     fcitx5-configtool
 )
 
-# Thêm driver nếu có card NVIDIA
+# Thêm driver và kernel headers nếu có card NVIDIA
 if [ "$HAS_NVIDIA" = "true" ]; then
-    PACKAGES+=(nvidia-dkms nvidia-utils libva-nvidia-driver)
+    echo -e "${BLUE}:: Bổ sung gói Driver NVIDIA và Kernel Headers: ${KERNEL_HEADERS_PKG}...${NC}"
+    PACKAGES+=(
+        "$KERNEL_HEADERS_PKG"
+        nvidia-dkms
+        nvidia-utils
+        libva-nvidia-driver
+    )
 fi
 
-# 3. Lọc ra các gói chưa cài đặt để cài bổ sung
+# Thêm tiện ích quản lý phần cứng ASUS ROG nếu phát hiện máy ASUS ROG
+if [ "$IS_ASUS_ROG" = "true" ]; then
+    echo -e "${BLUE}:: Bổ sung tiện ích điều khiển máy ASUS ROG (asusctl, supergfxctl)...${NC}"
+    PACKAGES+=(
+        asusctl
+        supergfxctl
+    )
+fi
+
+# 4. Lọc ra các gói chưa cài đặt để cài bổ sung
 TO_INSTALL=()
 for pkg in "${PACKAGES[@]}"; do
     if ! pacman -Qi "$pkg" &> /dev/null; then
@@ -106,7 +167,7 @@ done
 if [ ${#TO_INSTALL[@]} -eq 0 ]; then
     echo -e "${GREEN}✓ Tất cả các gói phần mềm cần thiết đã được cài đặt sẵn!${NC}\n"
 else
-    echo -e "${YELLOW}Đang cài đặt các gói còn thiếu: ${TO_INSTALL[*]}${NC}"
+    echo -e "${YELLOW}Đang cài đặt các gói còn thiếu (${#TO_INSTALL[@]} gói): ${TO_INSTALL[*]}${NC}"
     $AUR_HELPER -S --needed --noconfirm "${TO_INSTALL[@]}"
     echo -e "${GREEN}✓ Cài đặt phần mềm hoàn tất!${NC}\n"
 fi

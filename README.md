@@ -121,6 +121,7 @@ yusei-hypr/
 │   ├── 02-packages.sh          # Dependency resolver using pacman and yay/paru
 │   ├── 03-backup.sh            # Hardened snapshot generator with manifest.json
 │   ├── 04-install-configs.sh   # Layered deployment & permission supervisor
+│   ├── 05-optional-apps.sh     # Optional curated app checklist & TUI installer
 │   ├── rollback.sh             # Idempotent 1-command rollback engine
 │   ├── theme-engine.sh         # Dynamic Material You color extractor & dispatcher
 │   └── launch-daemons.sh       # Singleton daemon lifecycle supervisor
@@ -286,17 +287,32 @@ To bypass prompts and automatically answer "yes" to all installation steps:
 
 ### Installation Workflow Breakdown:
 1. **🔍 Hardware & Environment Inspection (`01-detect.sh`)**:
-   - Detects CPU architecture, active GPU (NVIDIA / Intel / AMD), and device chassis (Laptop vs Desktop).
-   - Configures hardware-specific Hyprland modules (e.g. `nvidia.conf`).
-2. **📦 Dependency Resolution (`02-packages.sh`)**:
-   - Inspects existing packages via `pacman -Qq`.
-   - Fetches missing tools and AUR dependencies via `yay` or `paru`.
-3. **🛡️ Automated Snapshot Backup (`03-backup.sh`)**:
-   - Safely archives existing `~/.config/{hypr,waybar,rofi,swaync,kitty}` directories into `~/.config/yusei-hypr-backups/backup_<timestamp>/`.
-   - Records file integrity metadata in `manifest.json`.
-4. **🚀 Layer Deployment & Permissions (`04-install-configs.sh`)**:
-   - Deploys new configurations with proper user permissions.
-   - Enforces `chmod +x` across all 64 utility scripts in `~/.config/hypr/scripts/`.
+   - Detects GPU (NVIDIA / Intel / AMD), active Linux kernel package (`linux`, `linux-zen`, `linux-lts`, `linux-hardened`) to fetch matching `${KERNEL}-headers`, laptop chassis, and ASUS ROG hardware.
+2. **📦 Dependency Resolution & Conflict Fix (`02-packages.sh`)**:
+   - Resolves PulseAudio vs PipeWire conflicts (safely removes conflicting legacy pulseaudio packages).
+   - Installs PipeWire audio stack, Bluetooth (`bluez`, `bluez-utils`, `blueman`), complete fonts (`ttf-font-awesome`, `noto-fonts-emoji`), cursor/icon themes (`bibata-cursor-theme`, `papirus-icon-theme`), and Thunar thumbnailer utilities (`tumbler`, `ffmpegthumbnailer`, `thunar-archive-plugin`, `gvfs`, `xarchiver`).
+   - Automatically appends kernel headers and NVIDIA DKMS or ASUS ROG tools (`asusctl`, `supergfxctl`).
+3. **⚡ NVIDIA Kernel & Bootloader Setup (`setup-nvidia.sh`)**:
+   - Injects Early KMS modules (`nvidia nvidia_modeset nvidia_uvm nvidia_drm`) into `/etc/mkinitcpio.conf` and rebuilds initramfs (`mkinitcpio -P`).
+   - Generates `/etc/modprobe.d/nvidia.conf` with `options nvidia_drm modeset=1 fbdev=1`.
+   - Appends `nvidia_drm.modeset=1` to GRUB (`/etc/default/grub` + `grub-mkconfig`) or systemd-boot entries.
+4. **🔌 System & User Services Orchestration (`setup-services.sh`)**:
+   - Enables and starts `bluetooth.service`, ASUS ROG `supergfxd.service` (if applicable), and PipeWire/WirePlumber user services.
+5. **🔐 Display Manager Provisioning (`setup-sddm.sh`)**:
+   - Disables competing display managers (GDM, LightDM, LXDM).
+   - Installs `sddm`, Qt6 libraries, deploys `simple-sddm-2` theme into `/usr/share/sddm/themes/`, and enables `sddm.service`.
+6. **🛡️ Automated Snapshot Backup (`03-backup.sh`)**:
+   - Safely archives existing `~/.config/{hypr,waybar,rofi,swaync,kitty,...}` directories into `~/.config/yusei-hypr-backups/backup_<timestamp>/` with `manifest.json`.
+7. **🚀 Safe Layer Deployment (`04-install-configs.sh`)**:
+   - Non-destructive deployment: preserves user-customized `UserConfigs/` and `UserScripts/` without data loss.
+   - Automatically uncomments `source = ./nvidia.conf` in `hyprland.conf` if NVIDIA is detected.
+   - Enforces `chmod +x` across all utility scripts.
+8. **🩺 System Verification & Health Check (`05-verify.sh`)**:
+   - Live diagnostics reporting status of GPU drivers, PipeWire audio, Bluetooth, SDDM, XDG Portals, Fonts, and desktop configs with clear color-coded statuses (`[OK]`, `[CẢNH BÁO]`, `[LỖI]`).
+9. **🧰 Optional Curated Applications Catalog (`06-optional-apps.sh`)**:
+   - Interactive TUI checklist for browsers, dev tools, and desktop enhancements.
+10. **🗑️ Clean System Uninstaller & Rollback (`scripts/uninstall.sh`)**:
+    - Reverts `~/.config` to the latest pre-install snapshot via `rollback.sh`, cleans up created modprobe configs, and disables system services.
 
 ---
 

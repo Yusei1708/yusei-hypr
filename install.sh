@@ -8,10 +8,10 @@
 # 
 #  yusei-hypr: Universal Hyprland Suite & Auto-Installer
 #  Style: End-4 Material 3 (Material You)
-#  Target: Arch Linux
+#  Target: Arch Linux (JaKooLit Stability Parity)
 # ==============================================================================
 
-set -e
+set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -33,19 +33,32 @@ cat << "EOF"
     |_|   \___/|____/|_____|___|     |_| |_|  |_| |_|   |_| \_\
 
    ✨ Universal Hyprland Suite for Arch Linux (End-4 Style) ✨
+      🛡️ Battle-tested Hardware Stability Parity Edition 🛡️
 EOF
 echo -e "${NC}"
 
 echo -e "${BLUE}Chào mừng bạn đến với bộ cài đặt tự động ${BOLD}yusei-hypr${NC}!"
 echo -e "Bộ cài đặt này sẽ:"
-echo -e "  1. Tự động nhận diện phần cứng (NVIDIA/Intel/AMD, Laptop/Desktop)."
-echo -e "  2. Tự cài đặt đầy đủ phần mềm phụ thuộc (Hyprland, Waybar, Rofi, Fcitx5...)."
-echo -e "  3. Tự động sao lưu toàn bộ cấu hình cũ trong ~/.config."
-echo -e "  4. Triển khai giao diện bo góc & animations phong cách Material 3 (End-4)."
+echo -e "  1. Tự động nhận diện phần cứng (NVIDIA/Intel/AMD, Kernel headers, Laptop, ASUS ROG)."
+echo -e "  2. Cài đặt các gói phụ thuộc, loại bỏ xung đột PulseAudio sang PipeWire hoàn chỉnh."
+echo -e "  3. Cấu hình chuyên sâu tầng Kernel (Early KMS, Modprobe DRM, GRUB) nếu có card NVIDIA."
+echo -e "  4. Kích hoạt toàn bộ các dịch vụ hệ thống (Bluetooth, PipeWire, WirePlumber)."
+echo -e "  5. Cài đặt và cấu hình Display Manager SDDM kèm theme simple-sddm-2 chuẩn mực."
+echo -e "  6. Sao lưu bảo toàn các cấu hình cũ trong ~/.config."
+echo -e "  7. Triển khai giao diện bo góc & animations phong cách Material 3 (End-4)."
+echo -e "  8. Kiểm định toàn diện sức khỏe hệ thống sau khi cài đặt (05-verify.sh)."
 echo ""
 
-# Xác nhận người dùng
-if [[ "$1" != "-y" && "$1" != "--yes" ]]; then
+# Xác nhận người dùng (Hỗ trợ cờ -y hoặc --yes)
+AUTO_ACCEPT=false
+for arg in "$@"; do
+    if [[ "$arg" == "-y" || "$arg" == "--yes" ]]; then
+        AUTO_ACCEPT=true
+        break
+    fi
+done
+
+if [ "$AUTO_ACCEPT" = "false" ]; then
     read -rp "Bạn có muốn tiếp tục tiến hành cài đặt ngay bây giờ? [Y/n]: " CONFIRM
     if [[ "$CONFIRM" =~ ^[nN] ]]; then
         echo -e "${RED}Đã hủy cài đặt.${NC}"
@@ -54,13 +67,47 @@ if [[ "$1" != "-y" && "$1" != "--yes" ]]; then
 fi
 
 echo ""
-chmod +x "$DIR"/scripts/*.sh
+chmod +x "$DIR"/scripts/*.sh 2>/dev/null || true
 
-# Chạy tuần tự các bước
+# ------------------------------------------------------------------------------
+# Chạy tuần tự quy trình cài đặt chuẩn hóa
+# ------------------------------------------------------------------------------
+
+# Bước 1: Nhận diện phần cứng & Kernel
 "$DIR/scripts/01-detect.sh"
+
+# Bước 2: Cài đặt phần mềm & Phụ thuộc
 "$DIR/scripts/02-packages.sh"
+
+# Bước 3: Cấu hình Kernel NVIDIA (nếu có card NVIDIA)
+HAS_NVIDIA="false"
+if [ -f /tmp/yusei-hypr/detected.env ]; then
+    # shellcheck disable=SC1091
+    . /tmp/yusei-hypr/detected.env
+fi
+if [ "$HAS_NVIDIA" = "true" ]; then
+    "$DIR/scripts/setup-nvidia.sh" "$@"
+fi
+
+# Bước 4: Kích hoạt dịch vụ hệ thống nền (Bluetooth, Audio, ASUS ROG)
+"$DIR/scripts/setup-services.sh"
+
+# Bước 5: Cấu hình Trình quản lý đăng nhập SDDM
+"$DIR/scripts/setup-sddm.sh" "$@"
+
+# Bước 6: Sao lưu cấu hình hiện tại
 "$DIR/scripts/03-backup.sh"
+
+# Bước 7: Cài đặt cấu hình End-4 Material 3 (Bảo vệ UserConfigs & UserScripts)
 "$DIR/scripts/04-install-configs.sh"
+
+# Bước 8: Kiểm định hệ thống sau cài đặt
+"$DIR/scripts/05-verify.sh"
+
+# Bước 9 (Tùy chọn): Gợi ý cài đặt ứng dụng catalog
+if [ -f "$DIR/scripts/06-optional-apps.sh" ]; then
+    "$DIR/scripts/06-optional-apps.sh" "$@" || true
+fi
 
 echo -e "${CYAN}${BOLD}================================================================${NC}"
 echo -e "${GREEN}${BOLD}🎉 CHÚC MỪNG! BỘ CÀI ĐẶT yusei-hypr ĐÃ HOÀN TẤT THÀNH CÔNG!${NC}"
@@ -75,4 +122,5 @@ echo -e "  • ${BOLD}Super + N${NC}      : Mở Trung tâm thông báo (SwayNC)
 echo -e "  • ${BOLD}Super + L${NC}      : Khóa màn hình (Hyprlock)"
 echo -e "  • ${BOLD}Print / Super+Shift+S${NC} : Chụp toàn màn hình / Chụp vùng chọn"
 echo ""
-echo -e "${BLUE}👉 Hãy khởi động lại Hyprland hoặc Logout và Login lại để áp dụng trọn vẹn!${NC}"
+echo -e "${BLUE}ℹ️ Khi cần hoàn nguyên hoặc gỡ cài đặt, bạn có thể chạy: ${BOLD}./scripts/uninstall.sh${NC}"
+echo -e "${BLUE}👉 Hãy khởi động lại máy tính (Reboot) để các module kernel và SDDM có hiệu lực trọn vẹn!${NC}\n"
