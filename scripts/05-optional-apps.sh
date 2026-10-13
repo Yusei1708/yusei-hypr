@@ -643,11 +643,6 @@ main_workflow() {
         local list_h=$(( box_h - 8 ))
         [ "$list_h" -lt 6 ] && list_h=6
 
-        local can_open_ctty=false
-        if (exec < /dev/tty) 2>/dev/null; then
-            can_open_ctty=true
-        fi
-
         local tui_args=()
         for id in "${APP_IDS[@]}"; do
             local label="${APP_NAMES[$id]}"
@@ -664,41 +659,22 @@ main_workflow() {
 
         # Ưu tiên Whiptail nếu có
         if command -v whiptail &>/dev/null; then
-            if [ "$can_open_ctty" = "true" ]; then
-                choices=$(whiptail --title "yusei-hypr: Cài đặt ứng dụng tùy chọn (5/5)" \
-                    --checklist "Dùng Phím Cách (Space) để chọn/bỏ chọn, Mũi Tên để di chuyển, Tab để chọn nút.\n(Các ứng dụng [Đã có] mặc định tắt checkbox để tránh trùng lặp):" \
-                    "$box_h" "$box_w" "$list_h" \
-                    --ok-button "Cài đặt" \
-                    --cancel-button "Bỏ qua" \
-                    "${tui_args[@]}" \
-                    3>&1 1>&2 2>&3 </dev/tty) || ret=$?
-            else
-                choices=$(whiptail --title "yusei-hypr: Cài đặt ứng dụng tùy chọn (5/5)" \
-                    --checklist "Dùng Phím Cách (Space) để chọn/bỏ chọn, Mũi Tên để di chuyển, Tab để chọn nút.\n(Các ứng dụng [Đã có] mặc định tắt checkbox để tránh trùng lặp):" \
-                    "$box_h" "$box_w" "$list_h" \
-                    --ok-button "Cài đặt" \
-                    --cancel-button "Bỏ qua" \
-                    "${tui_args[@]}" \
-                    3>&1 1>&2 2>&3) || ret=$?
-            fi
+            choices=$(whiptail --title "yusei-hypr: Cài đặt ứng dụng tùy chọn (5/5)" \
+                --checklist "Dùng Phím Cách (Space) để chọn/bỏ chọn, Mũi Tên để di chuyển, Tab để chọn nút.\n(Các ứng dụng [Đã có] mặc định tắt checkbox để tránh trùng lặp):" \
+                "$box_h" "$box_w" "$list_h" \
+                --ok-button "Cài đặt" \
+                --cancel-button "Bỏ qua" \
+                "${tui_args[@]}" \
+                3>&1 1>&2 2>&3) || ret=$?
         elif command -v dialog &>/dev/null; then
             local dialog_err
             dialog_err=$(mktemp 2>/dev/null || echo "/tmp/dialog_err_$$")
-            if [ "$can_open_ctty" = "true" ]; then
-                choices=$(dialog --stdout --title "yusei-hypr: Cài đặt ứng dụng tùy chọn (5/5)" \
-                    --checklist "Dùng Phím Cách (Space) để chọn/bỏ chọn, Mũi Tên để di chuyển, Tab để chọn nút.\n(Các ứng dụng [Đã có] mặc định tắt checkbox để tránh trùng lặp):" \
-                    "$box_h" "$box_w" "$list_h" \
-                    --ok-label "Cài đặt" \
-                    --cancel-label "Bỏ qua" \
-                    "${tui_args[@]}" </dev/tty 2>"$dialog_err") || ret=$?
-            else
-                choices=$(dialog --stdout --title "yusei-hypr: Cài đặt ứng dụng tùy chọn (5/5)" \
-                    --checklist "Dùng Phím Cách (Space) để chọn/bỏ chọn, Mũi Tên để di chuyển, Tab để chọn nút.\n(Các ứng dụng [Đã có] mặc định tắt checkbox để tránh trùng lặp):" \
-                    "$box_h" "$box_w" "$list_h" \
-                    --ok-label "Cài đặt" \
-                    --cancel-label "Bỏ qua" \
-                    "${tui_args[@]}" 2>"$dialog_err") || ret=$?
-            fi
+            choices=$(dialog --stdout --title "yusei-hypr: Cài đặt ứng dụng tùy chọn (5/5)" \
+                --checklist "Dùng Phím Cách (Space) để chọn/bỏ chọn, Mũi Tên để di chuyển, Tab để chọn nút.\n(Các ứng dụng [Đã có] mặc định tắt checkbox để tránh trùng lặp):" \
+                "$box_h" "$box_w" "$list_h" \
+                --ok-label "Cài đặt" \
+                --cancel-label "Bỏ qua" \
+                "${tui_args[@]}" 2>"$dialog_err") || ret=$?
             if [ "$ret" -ne 0 ] && [ -s "$dialog_err" ]; then
                 choices=$(cat "$dialog_err" 2>/dev/null || true)
             fi
