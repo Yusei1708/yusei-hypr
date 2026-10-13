@@ -47,6 +47,7 @@ echo -e "  5. Cài đặt và cấu hình Display Manager SDDM kèm theme simple
 echo -e "  6. Sao lưu bảo toàn các cấu hình cũ trong ~/.config."
 echo -e "  7. Triển khai giao diện bo góc & animations phong cách Material 3 (End-4)."
 echo -e "  8. Kiểm định toàn diện sức khỏe hệ thống sau khi cài đặt (05-verify.sh)."
+echo -e "  9. Gợi ý cài đặt ứng dụng tùy chọn và công cụ quản trị hệ thống (05-optional-apps.sh)."
 echo ""
 
 # Xác nhận người dùng (Hỗ trợ cờ -y hoặc --yes)
@@ -105,7 +106,9 @@ fi
 "$DIR/scripts/05-verify.sh"
 
 # Bước 9 (Tùy chọn): Gợi ý cài đặt ứng dụng catalog
-if [ -f "$DIR/scripts/06-optional-apps.sh" ]; then
+if [ -f "$DIR/scripts/05-optional-apps.sh" ]; then
+    "$DIR/scripts/05-optional-apps.sh" "$@" || true
+elif [ -f "$DIR/scripts/06-optional-apps.sh" ]; then
     "$DIR/scripts/06-optional-apps.sh" "$@" || true
 fi
 

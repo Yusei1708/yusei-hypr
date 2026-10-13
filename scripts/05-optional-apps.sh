@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # yusei-hypr: Optional Applications & System Management Module
-# Step: [6/6]
+# Step: [5/5]
 #
 # Interactive TUI Checklist (Whiptail/Dialog) with Pure-Bash CLI Fallback.
 # Curated catalog: Browsers, System Tools, SDDM + Themes, Dev Tools, Aesthetics.
@@ -17,7 +17,7 @@ RED='\033[0;31m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-echo -e "${BLUE}:: [6/6] Gợi ý cài đặt ứng dụng tùy chọn và công cụ quản trị hệ thống...${NC}"
+echo -e "${BLUE}:: [5/5] Gợi ý cài đặt ứng dụng tùy chọn và công cụ quản trị hệ thống...${NC}"
 
 # ------------------------------------------------------------------------------
 # 1. Parsing Arguments
@@ -261,6 +261,8 @@ is_terminal_capable() {
     local term_lines term_cols
     term_lines=$(tput lines 2>/dev/null || echo 0)
     term_cols=$(tput cols 2>/dev/null || echo 0)
+    [[ "${term_lines:-0}" =~ ^[0-9]+$ ]] || term_lines=0
+    [[ "${term_cols:-0}" =~ ^[0-9]+$ ]] || term_cols=0
     if [ "${term_lines:-0}" -lt 16 ] || [ "${term_cols:-0}" -lt 65 ]; then
         return 1
     fi
@@ -629,6 +631,8 @@ main_workflow() {
         local term_lines term_cols
         term_lines=$(tput lines 2>/dev/null || echo 24)
         term_cols=$(tput cols 2>/dev/null || echo 80)
+        [[ "${term_lines:-0}" =~ ^[0-9]+$ ]] || term_lines=24
+        [[ "${term_cols:-0}" =~ ^[0-9]+$ ]] || term_cols=80
 
         local box_h=$(( term_lines > 24 ? 24 : term_lines - 2 ))
         [ "$box_h" -lt 16 ] && box_h=16
@@ -678,21 +682,27 @@ main_workflow() {
                     3>&1 1>&2 2>&3) || ret=$?
             fi
         elif command -v dialog &>/dev/null; then
+            local dialog_err
+            dialog_err=$(mktemp 2>/dev/null || echo "/tmp/dialog_err_$$")
             if [ "$can_open_ctty" = "true" ]; then
                 choices=$(dialog --stdout --title "yusei-hypr: Cài đặt ứng dụng tùy chọn (5/5)" \
                     --checklist "Dùng Phím Cách (Space) để chọn/bỏ chọn, Mũi Tên để di chuyển, Tab để chọn nút.\n(Các ứng dụng [Đã có] mặc định tắt checkbox để tránh trùng lặp):" \
                     "$box_h" "$box_w" "$list_h" \
                     --ok-label "Cài đặt" \
                     --cancel-label "Bỏ qua" \
-                    "${tui_args[@]}" </dev/tty) || ret=$?
+                    "${tui_args[@]}" </dev/tty 2>"$dialog_err") || ret=$?
             else
                 choices=$(dialog --stdout --title "yusei-hypr: Cài đặt ứng dụng tùy chọn (5/5)" \
                     --checklist "Dùng Phím Cách (Space) để chọn/bỏ chọn, Mũi Tên để di chuyển, Tab để chọn nút.\n(Các ứng dụng [Đã có] mặc định tắt checkbox để tránh trùng lặp):" \
                     "$box_h" "$box_w" "$list_h" \
                     --ok-label "Cài đặt" \
                     --cancel-label "Bỏ qua" \
-                    "${tui_args[@]}") || ret=$?
+                    "${tui_args[@]}" 2>"$dialog_err") || ret=$?
             fi
+            if [ "$ret" -ne 0 ] && [ -s "$dialog_err" ]; then
+                choices=$(cat "$dialog_err" 2>/dev/null || true)
+            fi
+            rm -f "$dialog_err" 2>/dev/null || true
         fi
 
         if [ "$ret" -eq 0 ]; then

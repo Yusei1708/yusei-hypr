@@ -309,8 +309,9 @@ To bypass prompts and automatically answer "yes" to all installation steps:
    - Enforces `chmod +x` across all utility scripts.
 8. **🩺 System Verification & Health Check (`05-verify.sh`)**:
    - Live diagnostics reporting status of GPU drivers, PipeWire audio, Bluetooth, SDDM, XDG Portals, Fonts, and desktop configs with clear color-coded statuses (`[OK]`, `[CẢNH BÁO]`, `[LỖI]`).
-9. **🧰 Optional Curated Applications Catalog (`06-optional-apps.sh`)**:
-   - Interactive TUI checklist for browsers, dev tools, and desktop enhancements.
+9. **🧰 Optional Curated Applications Catalog (`05-optional-apps.sh`)**:
+   - Interactive TUI checklist (Whiptail/Dialog with pure-Bash fallback) for web browsers (Google Chrome, Brave, Chromium), system administration (Mission Center, GParted, Timeshift, UFW firewall), login manager (SDDM + Sugar Candy theme), dev tools (Git, VS Code), and system monitoring / aesthetics (Btop, Pokemon Colorscripts, Cava).
+   - Automatically detects pre-installed applications to avoid duplicate installation, supports `--dry-run`, `--list-apps`, and post-install triggers.
 10. **🗑️ Clean System Uninstaller & Rollback (`scripts/uninstall.sh`)**:
     - Reverts `~/.config` to the latest pre-install snapshot via `rollback.sh`, cleans up created modprobe configs, and disables system services.
 
