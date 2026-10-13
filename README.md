@@ -34,6 +34,7 @@
 [🏛️ Architecture](#-system-architecture) •
 [🧩 Components](#-component-matrix) •
 [⚙️ Settings App](#-yusei-settings-control-center) •
+[🧰 Optional Apps](#-optional-applications--system-tools) •
 [🚀 Installation](#-installation-guide) •
 [🎨 Theming](#-dynamic-theming-engine-material-you) •
 [⌨️ Keybindings](#-keybindings-reference) •
@@ -98,6 +99,9 @@ By separating the visual presentation layer from the core operational layer, **y
 - 👾 **Pokemon Fastfetch Terminal Greeting**:
   - Automatically displays randomized pixel-art Pokemon alongside clean system metrics upon opening Kitty or any terminal shell.
   - Native integration with `pokemon-colorscripts` and optimized `config-pokemon.jsonc`.
+- 🧰 **Interactive Post-Install App Store (`scripts/05-optional-apps.sh`)**:
+  - Interactive TUI checklist (Whiptail/Dialog with pure-Bash fallback) to easily select and install popular apps: Google Chrome, Brave, Mission Center, GParted, Timeshift, UFW, SDDM with Sugar Candy theme, Git, VS Code, Btop.
+  - Automatically identifies pre-existing software, supports `--dry-run` safe simulations, and triggers system service setups (SDDM login theme & UFW firewall).
 - 🔒 **Enterprise-Grade Backup & Rollback Protocol**:
   - Automated timestamped snapshots with `manifest.json` before any configuration file is modified.
   - 1-command idempotent `scripts/rollback.sh` restores your exact pre-installation state in seconds.
@@ -254,6 +258,57 @@ Launch directly from the repository or your application launcher:
 
 # List all discovered themes and layouts in terminal
 ./bin/yusei-settings --list
+```
+
+---
+
+## 🧰 Optional Applications & System Tools
+
+Near the end of the installation process, **yusei-hypr** launches an interactive, user-friendly **Optional Applications Selector** (`scripts/05-optional-apps.sh`). It presents a curated catalog of 13 popular software packages and system management utilities, allowing you to check/uncheck apps with the spacebar and automatically install and configure them.
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│             ✨ GỢI Ý CÀI ĐẶT ỨNG DỤNG TÙY CHỌN (yusei-hypr) ✨          │
+├────────────────────────────────────────────────────────────────────────┤
+│ Chọn các ứng dụng bổ sung bạn muốn cài đặt thêm cho hệ thống:          │
+│                                                                        │
+│  [ ] chrome               Google Chrome (Trình duyệt phổ biến)        │
+│  [ ] brave                Brave Browser (Bảo mật & chặn quảng cáo)    │
+│  [*] mission-center       Mission Center (Task Manager kiểu Win 11)   │
+│  [*] gparted              GParted (Quản lý phân vùng ổ đĩa)           │
+│  [*] timeshift            Timeshift (Sao lưu & khôi phục hệ thống)    │
+│  [ ] ufw                  UFW Firewall (Tường lửa & giao diện GUFW)   │
+│  [*] sddm                 SDDM + Sugar Candy (Màn hình đăng nhập đẹp) │
+│  [*] git                  Git & Git-LFS (Quản lý mã nguồn)            │
+│  [ ] vscode               Visual Studio Code                          │
+│  [*] btop                 Btop++ (Giám sát tài nguyên CPU/RAM/GPU)    │
+│  [*] pokemon-colorscripts Pokemon Colorscripts (Trang trí Terminal)   │
+│  [*] cava                 Cava Audio Visualizer (Sóng nhạc sống động) │
+│                                                                        │
+│                    < Cài Đặt >          < Bỏ Qua >                     │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+### 🌟 Key Capabilities
+- **Adaptive TUI / CLI Execution**: Automatically scales to 80% terminal width/height via `whiptail` or `dialog`, with a robust interactive pure-Bash numbered fallback menu (`[X]` toggles) for constrained environments.
+- **Pre-Installation Detection**: Instantly scans your system via cached `pacman -Qq` to identify already installed applications (`[Đã có]`), unchecking them by default to prevent redundant downloads.
+- **Post-Install Automation Triggers**:
+  - **SDDM**: Writes Sugar Candy theme config to `/etc/sddm.conf.d/10-theme.conf` and enables `sddm.service`.
+  - **UFW**: Automatically enables `ufw.service` for instant out-of-the-box firewall protection.
+- **Package Manager Fallback Hierarchy**: Automatically orchestrates `yay` $\rightarrow$ `paru` $\rightarrow$ `sudo pacman -S --needed`.
+
+### 🚀 Standalone Usage & Simulation
+You can run the app selector at any time independently of the main installer:
+
+```bash
+# View all 13 catalog apps and their local installation status:
+./scripts/05-optional-apps.sh --list-apps
+
+# Safe dry-run simulation (no packages installed, no system changes):
+./scripts/05-optional-apps.sh --dry-run
+
+# Force interactive CLI numbered menu:
+./scripts/05-optional-apps.sh --cli
 ```
 
 ---
