@@ -34,6 +34,10 @@
           <span class="nav-icon">⚡</span>
           <span>Hyprland</span>
         </div>
+        <div class="nav-item" data-page="page-power">
+          <span class="nav-icon">🔋</span>
+          <span>Nguồn điện & Pin</span>
+        </div>
         <div class="nav-item" data-page="page-keybinds">
           <span class="nav-icon">⌨️</span>
           <span>Phím tắt</span>
@@ -146,6 +150,113 @@
               <p>Áp dụng quy tắc monitors.conf linh hoạt không khóa cứng ID</p>
             </div>
             <span class="card-badge active-badge">Auto (preferred, auto, 1)</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- PAGE: NGUỒN ĐIỆN & PIN (POWER & BATTERY) -->
+      <section id="page-power" class="settings-page" style="display: none;">
+        <div class="page-header">
+          <div class="page-title">
+            <h1>Nguồn điện & Pin (Power & Battery)</h1>
+            <p>Quản lý profile năng lượng, tối ưu pin laptop và tự động điều chỉnh tần số quét màn hình</p>
+          </div>
+          <button class="btn btn-secondary" id="btn-refresh-power">Làm mới trạng thái</button>
+        </div>
+
+        <!-- Card 1: Giám sát Pin và Công suất thời gian thực -->
+        <div class="settings-section-card">
+          <div class="settings-section-header">
+            <h3>Trạng Thái Nguồn Điện & Pin</h3>
+            <p>Theo dõi dung lượng, công suất xả/sạc theo thời gian thực và thời gian sử dụng ước tính</p>
+          </div>
+
+          <div class="battery-gauge-container">
+            <div class="battery-gauge-track">
+              <div class="battery-gauge-fill" id="power-battery-fill" style="width: 100%;"></div>
+            </div>
+            <div class="battery-gauge-percent" id="power-battery-percent">100%</div>
+          </div>
+
+          <div class="maintenance-status-grid">
+            <div class="status-metric">
+              <span class="metric-label">Nguồn điện</span>
+              <span class="metric-val" id="power-source-val">--</span>
+            </div>
+            <div class="status-metric">
+              <span class="metric-label">Tình trạng pin</span>
+              <span class="metric-val" id="power-status-val">--</span>
+            </div>
+            <div class="status-metric">
+              <span class="metric-label">Công suất tiêu thụ / sạc</span>
+              <span class="metric-val" id="power-watts-val">-- W</span>
+            </div>
+            <div class="status-metric">
+              <span class="metric-label">Thời gian sử dụng ước tính</span>
+              <span class="metric-val" id="power-time-val">--</span>
+            </div>
+            <div class="status-metric">
+              <span class="metric-label">Màn hình & Tần số quét</span>
+              <span class="metric-val" id="power-hz-val">-- Hz</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 2: Chuyển đổi nhanh 3 Profile Năng lượng -->
+        <div class="settings-section-card">
+          <div class="settings-section-header">
+            <h3>Profile Năng Lượng (Energy Profiles)</h3>
+            <p>Chuyển đổi tức thời giữa các cấu hình điều phối xung nhịp CPU và tần số quét màn hình</p>
+          </div>
+
+          <div class="power-profiles-grid">
+            <div class="power-profile-card eco" id="card-profile-eco">
+              <div class="power-profile-icon"></div>
+              <div class="power-profile-title">Tiết Kiệm Pin (Eco)</div>
+              <div class="power-profile-desc">Hạ xung nhịp CPU, giảm tiêu thụ điện năng tối đa và tự động khóa màn hình ở 60Hz khi dùng pin.</div>
+              <span class="power-profile-badge">Power-saver • 60Hz</span>
+            </div>
+
+            <div class="power-profile-card balanced" id="card-profile-balanced">
+              <div class="power-profile-icon"></div>
+              <div class="power-profile-title">Cân Bằng (Balanced)</div>
+              <div class="power-profile-desc">Tự động cân bằng giữa hiệu năng mượt mà và thời lượng pin. Khôi phục tần số quét cao khi cắm sạc.</div>
+              <span class="power-profile-badge">Mặc định • Dynamic Hz</span>
+            </div>
+
+            <div class="power-profile-card turbo" id="card-profile-turbo">
+              <div class="power-profile-icon"></div>
+              <div class="power-profile-title">Hiệu Năng Cao (Turbo)</div>
+              <div class="power-profile-desc">Mở khóa toàn bộ xung nhịp CPU và duy trì tần số quét màn hình cao nhất (120/144/165Hz).</div>
+              <span class="power-profile-badge">Performance • Max Hz</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 3: Tự động điều chỉnh tần số quét màn hình -->
+        <div class="settings-section-card">
+          <div class="settings-section-header">
+            <h3>Tự Động Điều Chỉnh Tần Số Quét (Dynamic Refresh Rate)</h3>
+            <p>Tối ưu hóa thời lượng pin thông minh dựa trên trạng thái nguồn điện cắm sạc</p>
+          </div>
+
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Tự động hạ màn hình xuống 60Hz khi rút sạc</h4>
+              <p>Khi ngắt sạc AC, hệ thống tự động hạ tần số quét xuống 60Hz. Khi cắm sạc trở lại, hệ thống tự động khôi phục tần số quét gốc cao nhất (120/144/165Hz).</p>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="toggle-auto-60hz" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Chuyển đổi tần số quét thủ công</h4>
+              <p>Chuyển đổi qua lại ngay lập tức giữa 60Hz và tần số quét tối đa của màn hình</p>
+            </div>
+            <button class="btn btn-secondary" id="btn-manual-toggle-hz">Chuyển đổi Hz ngay</button>
           </div>
         </div>
       </section>

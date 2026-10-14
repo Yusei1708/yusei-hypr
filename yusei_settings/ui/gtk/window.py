@@ -31,6 +31,7 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
     from yusei_settings.core.discovery import DiscoveryEngine
     from yusei_settings.core.state import StateManager
     from yusei_settings.core.safety import SafetyEngine
+    from yusei_settings.core.power import PowerManager
 
     class YuseiSettingsApp(Adw.Application):
         def __init__(self):
@@ -38,6 +39,7 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
             self.discovery = DiscoveryEngine(workspace_root)
             self.state_mgr = StateManager(target_home)
             self.safety = SafetyEngine(target_home)
+            self.power_mgr = PowerManager(workspace_root, target_home)
 
         def do_activate(self):
             win = Adw.PreferencesWindow(application=self, title="Cài Đặt Hệ Thống (yusei-settings)")
@@ -98,6 +100,62 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
             group_hypr.add(row_blur)
             page_hyprland.add(group_hypr)
             win.add(page_hyprland)
+
+            # -----------------------------------------------------------------
+            # PAGE: Nguồn điện & Pin
+            # -----------------------------------------------------------------
+            page_power = Adw.PreferencesPage(
+                title="Nguồn điện & Pin",
+                icon_name="battery-symbolic"
+            )
+            group_power_status = Adw.PreferencesGroup(title="Giám Sát Nguồn & Pin")
+            power_st = self.power_mgr.get_status()
+            row_bat = Adw.ActionRow(
+                title="Dung lượng pin & Nguồn",
+                subtitle=f"{power_st.get('battery_percent', 100)}% ({power_st.get('battery_status', 'AC Only')}) • {'Cắm sạc AC' if power_st.get('ac_online') else 'Dùng pin'}"
+            )
+            group_power_status.add(row_bat)
+
+            row_rate = Adw.ActionRow(
+                title="Màn hình & Tần số quét",
+                subtitle=f"{power_st.get('monitor_name', 'Display')} • {power_st.get('current_hz', 60)} Hz (Tối đa: {power_st.get('max_hz', 60)} Hz)"
+            )
+            group_power_status.add(row_rate)
+            page_power.add(group_power_status)
+
+            group_profiles = Adw.PreferencesGroup(title="Profile Năng Lượng")
+            for p_id, p_name, p_desc in [
+                ("eco", "Tiết kiệm điện (Eco)", "Hạ xung nhịp CPU, giảm màn hình về 60Hz"),
+                ("balanced", "Cân bằng (Balanced)", "Tự động cân bằng hiệu năng và tiêu thụ điện"),
+                ("turbo", "Hiệu năng tối đa (Turbo)", "Xung nhịp CPU tối đa, tần số quét cao nhất")
+            ]:
+                row_p = Adw.ActionRow(title=p_name, subtitle=p_desc)
+                btn_p = Gtk.Button(label="Kích hoạt")
+                btn_p.connect("clicked", lambda b, prof=p_id: self.power_mgr.set_profile(prof))
+                row_p.add_suffix(btn_p)
+                group_profiles.add(row_p)
+            page_power.add(group_profiles)
+
+            group_power_cfg = Adw.PreferencesGroup(title="Tùy Chọn Tần Số Quét")
+            row_auto_60hz = Adw.SwitchRow(
+                title="Tự động hạ màn hình xuống 60Hz khi rút sạc",
+                subtitle="Khôi phục tần số quét cao khi cắm sạc",
+                active=power_st.get("auto_60hz", True)
+            )
+            row_auto_60hz.connect("notify::active", lambda w, p: self.power_mgr.set_config(w.get_active()))
+            group_power_cfg.add(row_auto_60hz)
+
+            row_toggle_hz = Adw.ActionRow(
+                title="Chuyển đổi tần số quét thủ công",
+                subtitle="Chuyển đổi qua lại giữa 60Hz và tần số quét tối đa của màn hình"
+            )
+            btn_toggle_hz = Gtk.Button(label="Chuyển đổi Hz")
+            btn_toggle_hz.connect("clicked", lambda b: self.power_mgr.toggle_hz())
+            row_toggle_hz.add_suffix(btn_toggle_hz)
+            group_power_cfg.add(row_toggle_hz)
+
+            page_power.add(group_power_cfg)
+            win.add(page_power)
 
             # -----------------------------------------------------------------
             # PAGE 3: Ứng dụng

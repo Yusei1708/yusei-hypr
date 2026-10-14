@@ -52,6 +52,7 @@
 	"modules": [
 		"backlight",
 		"battery",
+		"power-profiles-daemon",
 	]
 },
 "group/audio": {

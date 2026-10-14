@@ -16,6 +16,7 @@ echo -e "${BLUE}:: [Configs] Đang cài đặt các file cấu hình yusei-hypr 
 
 # Nạp thông tin phần cứng
 HAS_NVIDIA="false"
+IS_LAPTOP="false"
 if [ -f /tmp/yusei-hypr/detected.env ]; then
     # shellcheck disable=SC1091
     . /tmp/yusei-hypr/detected.env
@@ -112,6 +113,15 @@ if [ "${HAS_NVIDIA:-false}" = "true" ]; then
         sed -i -E 's@#\s*source\s*=\s*(\./|~/\.config/hypr/)nvidia\.conf@source = ./nvidia.conf@g' "$HOME/.config/hypr/hyprland.conf"
         echo -e "${GREEN}✓ Đã kích hoạt cấu hình tối ưu card đồ họa NVIDIA trong hyprland.conf!${NC}"
     fi
+fi
+
+# 3b. Cấu hình tự động và quản lý nguồn điện cho Laptop
+if [ "${IS_LAPTOP:-false}" = "true" ] || compgen -G "/sys/class/power_supply/BAT*" >/dev/null 2>&1; then
+    echo -e "${BLUE}:: [Laptop] Thiết bị Laptop được phát hiện. Đảm bảo cấu hình quản lý nguồn điện (power-profiles-daemon, brightnessctl, acpi)...${NC}"
+    if [[ -f "$HOME/.config/hypr/scripts/power-optimizer.sh" ]]; then
+        chmod +x "$HOME/.config/hypr/scripts/power-optimizer.sh" 2>/dev/null || true
+    fi
+    echo -e "${GREEN}✓ Đã cấu hình tối ưu pin và tần số quét tự động cho Laptop!${NC}"
 fi
 
 # 4. Sao chép bộ sưu tập hình nền vào ~/Pictures/wallpapers

@@ -133,6 +133,7 @@ yusei-hypr/
 │   ├── ui/                     # Windows 11 Fluent Web UI & GTK4 Adwaita frontend
 │   └── server.py               # Local HTTP API server (/api/keybinds, /api/system/*)
 ├── scripts/                    # Automation & Lifecycle Management
+│   ├── power-optimizer.sh      # Core power optimizer & dynamic refresh rate engine (eco, balanced, turbo)
 │   ├── hardware-detect.sh      # Standalone hardware detection subsystem (GPU, Chassis, Audio)
 │   ├── 01-detect.sh            # Distro, GPU (NVIDIA/Intel/AMD), and chassis probe compatibility shim
 │   ├── 02-packages.sh          # Dependency resolver using pacman and yay/paru
@@ -148,7 +149,8 @@ yusei-hypr/
 │   ├── test_config_isolation.sh     # userprefs.conf preservation & backups
 │   ├── test_hardware_detect.sh      # Hardware detection subsystem test harness
 │   ├── test_management_scripts.sh   # update.sh & uninstall.sh lifecycle tests
-│   └── run-all-tests.sh             # Master test runner (all 6 suites)
+│   ├── test_power_optimizer.sh      # Power optimizer & dynamic refresh rate tests
+│   └── run-all-tests.sh             # Master test runner (all 7 suites)
 └── config/
     ├── hypr/                   # Compositor Layer (Hyprland Core)
     │   ├── hyprland.conf       # 8-layer modular configuration loader (sources userprefs.conf)
@@ -516,6 +518,93 @@ If you ever wish to completely remove `yusei-hypr`, revert your desktop configur
 
 ---
 
+## ⚡ Power & Battery Management (power-optimizer.sh)
+
+`yusei-hypr` integrates an automated, comprehensive energy profile and refresh rate optimizer tailored for modern laptops. It balances high-refresh rate fluidity when plugged in with battery preservation when on the go.
+
+### 🌟 Key Capabilities
+
+1. **3 Dynamic Energy Profiles**:
+   -  **Eco (`eco`)**: Switches to `power-saver` governor, throttles background power draw, and drops screen refresh rate to **60Hz** to maximize battery longevity.
+   -  **Balanced (`balanced`)**: Dynamic power distribution suitable for everyday workflows. Restores high refresh rate when plugged in, drops to 60Hz when unplugged.
+   -  **Turbo (`turbo`)**: Locks CPU scaling to `performance` mode, unleashes full clock speeds, and maintains maximum display refresh rate (120/144/165Hz).
+
+2. **Automated Display Refresh Rate Coordination**:
+   - Seamlessly queries display capabilities via `hyprctl monitors -j`.
+   - Automatically drops refresh rate to **60Hz** on battery disconnection to conserve up to 30-40% display power.
+   - Automatically restores full native high refresh rate (**120Hz / 144Hz / 165Hz**) when connected to AC power.
+   - Manual toggle support via CLI (`--toggle-hz`) and Waybar widget.
+
+3. **Background Daemon & Event Listener**:
+   - Starts automatically in `config/hypr/autostart.conf` on laptop chassis detection.
+   - Listens to AC plug/unplug power supply events from `/sys/class/power_supply/`.
+   - Emits visual desktop notifications via `notify-send` with accurate power status and active profile.
+
+4. **Advanced Waybar Integration**:
+   - `power-profiles-daemon`: Displays active profile icon ( Eco,  Balanced,  Turbo). Left-click cycles through profiles; right-click opens power settings menu (`--menu`).
+   - `battery`: High-visibility status format with detailed tooltip showing current battery capacity (%), real-time power draw (**Watts**), and estimated remaining runtime. Left-click toggles refresh rate (60Hz vs Max Hz); right-click opens power menu (`--menu`).
+
+5. **Settings Control Center Integration (`yusei_settings`)**:
+   - Dedicated **"Nguồn điện & Pin"** page in both Web UI and GTK4 app.
+   - Visual battery gauge with real-time discharge/charge wattage telemetry.
+   - One-click energy profile switching buttons (Eco / Balanced / Turbo).
+   - "Tự động hạ màn hình xuống 60Hz khi rút sạc" toggle switch with persistent configuration.
+
+### 🚀 CLI Usage & Commands
+
+```bash
+# Query detailed battery, profile, and screen refresh rate status
+power-optimizer.sh --status
+power-optimizer.sh --status --json
+power-optimizer.sh --status --notify
+
+# Open interactive quick power & refresh rate settings menu (Rofi)
+power-optimizer.sh --menu
+
+# Set specific power profile
+power-optimizer.sh --set-profile=eco
+power-optimizer.sh --set-profile=balanced
+power-optimizer.sh --set-profile=turbo
+
+# Cycle to next power profile (eco -> balanced -> turbo -> eco)
+power-optimizer.sh --cycle-profile
+
+# Toggle display refresh rate between 60Hz and max native rate
+power-optimizer.sh --toggle-hz
+
+# Run auto-optimization based on current power source
+power-optimizer.sh --auto
+
+# Start the background AC event listener daemon
+power-optimizer.sh --daemon
+
+# Safe simulation without modifying hardware or display settings
+power-optimizer.sh --dry-run --auto
+```
+
+### ⚙️ User Customization (`~/.config/hypr/userprefs.conf`)
+
+Configure power optimization preferences non-destructively in your `userprefs.conf`:
+
+```bash
+# ------------------------------------------------------------------------------
+# 6. Power & Battery Management Preferences
+# ------------------------------------------------------------------------------
+# Automatically lower display refresh rate to 60Hz when on battery (1 = Enabled, 0 = Disabled)
+env = YUSEI_AUTO_60HZ,1
+
+# Preferred energy profile when connected to AC power (balanced or turbo)
+env = YUSEI_AC_PROFILE,balanced
+
+# Preferred energy profile when running on battery (eco or balanced)
+env = YUSEI_BAT_PROFILE,eco
+
+# Enable background power-optimizer daemon (1 = Enabled, 0 = Disabled)
+env = YUSEI_POWER_DAEMON,1
+```
+
+---
+
 ## ⌨️ Keybindings Reference
 
 The default `$mainMod` is the **Super** key (Windows key). All keybindings use hardware-independent keycodes where appropriate to guarantee international keyboard layout compatibility.
@@ -546,6 +635,7 @@ Quickly navigate the desktop using **Super + Tab** (cycle next workspace), **Sup
 | <kbd>Super</kbd> + <kbd>N</kbd> (Night Light) | `exec, Hyprsunset.sh toggle` | Toggle Night Light (Hyprsunset) | Bar & Notifications |
 | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>L</kbd> | `exec, LockScreen.sh` | Lock screen with Hyprlock | System & Session |
 | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>P</kbd> | `exec, Wlogout.sh` | Open Wlogout Power & Session exit menu | System & Session |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd> | `exec, power-optimizer.sh --toggle-hz` | Toggle display refresh rate (60Hz vs Max native rate) | Hardware & Power |
 | <kbd>Super</kbd> + <kbd>Alt</kbd> + <kbd>V</kbd> | `exec, ClipManager.sh` | Open Clipboard History Manager (Cliphist) | Features & Utilities |
 | <kbd>Super</kbd> + <kbd>Print</kbd> | `exec, ScreenShot.sh --now` | Capture fullscreen screenshot to file & clipboard | Screenshots |
 | <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>Print</kbd> | `exec, ScreenShot.sh --area` | Capture interactive selection area screenshot | Screenshots |

@@ -19,6 +19,7 @@ from yusei_settings.core.state import StateManager
 from yusei_settings.core.safety import SafetyEngine
 from yusei_settings.core.preview import PreviewEngine
 from yusei_settings.core.keybinds import KeybindParser
+from yusei_settings.core.power import PowerManager
 
 class SettingsRequestHandler(BaseHTTPRequestHandler):
     def __init__(self, *args, workspace_root: Optional[str] = None, target_home: Optional[str] = None, **kwargs):
@@ -27,6 +28,7 @@ class SettingsRequestHandler(BaseHTTPRequestHandler):
         self.discovery = DiscoveryEngine(self.workspace_root)
         self.state_mgr = StateManager(self.target_home)
         self.safety_engine = SafetyEngine(self.target_home)
+        self.power_mgr = PowerManager(self.workspace_root, self.target_home)
         keybinds_conf = Path(self.workspace_root) / "config" / "hypr" / "keybinds.conf"
         self.keybind_parser = KeybindParser(str(keybinds_conf))
         super().__init__(*args, **kwargs)
@@ -206,6 +208,11 @@ class SettingsRequestHandler(BaseHTTPRequestHandler):
                 "message": "Hệ thống đang ở phiên bản mới nhất.",
             })
 
+        # API: Power & Battery Status
+        if path == "/api/power/status":
+            status = self.power_mgr.get_status()
+            return self.send_json(status)
+
         self.send_error(404, "Endpoint not found")
 
     def do_POST(self):
@@ -316,6 +323,42 @@ class SettingsRequestHandler(BaseHTTPRequestHandler):
                 })
             except Exception as e:
                 return self.send_json({"success": False, "message": str(e)}, status=500)
+
+        # API: Set Power Profile (eco, balanced, turbo)
+        if path == "/api/power/profile":
+            profile = payload.get("profile", "")
+            try:
+                result = self.power_mgr.set_profile(profile)
+                return self.send_json(result)
+            except Exception as e:
+                return self.send_json({"success": False, "message": str(e)}, status=400)
+
+        # API: Cycle Power Profile (eco -> balanced -> turbo -> eco)
+        if path == "/api/power/cycle-profile":
+            try:
+                result = self.power_mgr.cycle_profile()
+                return self.send_json(result)
+            except Exception as e:
+                return self.send_json({"success": False, "message": str(e)}, status=500)
+
+        # API: Set Power Config (auto_60hz, power_daemon, ac_profile, bat_profile)
+        if path == "/api/power/config":
+            auto_60hz = payload.get("auto_60hz")
+            power_daemon = payload.get("power_daemon")
+            ac_profile = payload.get("ac_profile")
+            bat_profile = payload.get("bat_profile")
+            result = self.power_mgr.set_config(
+                auto_60hz=auto_60hz,
+                power_daemon=power_daemon,
+                ac_profile=ac_profile,
+                bat_profile=bat_profile
+            )
+            return self.send_json(result)
+
+        # API: Toggle Refresh Rate (60Hz <-> Max Hz)
+        if path == "/api/power/toggle-hz":
+            result = self.power_mgr.toggle_hz()
+            return self.send_json(result)
 
         self.send_error(404, "Endpoint not found")
 

@@ -41,6 +41,7 @@ SUITES=(
     "Config Isolation & Backups|tests/test_config_isolation.sh"
     "Hardware Detect Subsystem|tests/test_hardware_detect.sh"
     "Management Scripts|tests/test_management_scripts.sh"
+    "Power Optimizer Subsystem|tests/test_power_optimizer.sh"
     "yusei_settings Unit Tests|python3 -m unittest discover -s yusei_settings/tests"
 )
 

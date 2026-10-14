@@ -20,6 +20,7 @@
         "pulseaudio",
         "backlight",
         "battery",
+        "power-profiles-daemon",
         "network",
         "custom/notifications",
         "custom/power"
@@ -90,7 +91,26 @@
         "format": "{icon}  {capacity}%",
         "format-charging": "󰂄 {capacity}%",
         "format-plugged": "󰚥 {capacity}%",
-        "format-icons": ["󰂎", "󰁺", "󰁻", "󰁼", "󰁽", "󰁾", "󰁿", "󰂀", "󰂁", "󰂂", "󰁹"]
+        "format-icons": ["󰂎", "󰁺", "󰁻", "󰁼", "󰁽", "󰁾", "󰁿", "󰂀", "󰂁", "󰂂", "󰁹"],
+        "tooltip": true,
+        "tooltip-format": "Mức pin: {capacity}%\nThời gian còn lại: {timeTo}\nCông suất: {power}W\nTình trạng: {status}",
+        "tooltip-format-charging": "Mức pin: {capacity}%\nThời gian sạc đầy: {timeTo}\nCông suất: {power}W\nTình trạng: Đang sạc",
+        "tooltip-format-plugged": "Mức pin: {capacity}%\nCông suất: {power}W\nTình trạng: Đã cắm sạc",
+        "on-click": "$HOME/.config/hypr/scripts/power-optimizer.sh --toggle-hz",
+        "on-click-right": "$HOME/.config/hypr/scripts/power-optimizer.sh --menu"
+    },
+
+    "power-profiles-daemon": {
+        "format": "{icon}",
+        "tooltip-format": "Power Profile: {profile}\nDriver: {driver}\nLeft-click: Đổi profile\nRight-click: Cài đặt nguồn",
+        "tooltip": true,
+        "format-icons": {
+            "default": "",
+            "performance": "",
+            "balanced": "",
+            "power-saver": ""
+        },
+        "on-click-right": "$HOME/.config/hypr/scripts/power-optimizer.sh --menu"
     },
 
     "network": {

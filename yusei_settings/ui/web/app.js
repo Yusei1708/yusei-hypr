@@ -14,6 +14,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initCategoryTabs();
   initModalActions();
   initKeybindsAndMaintenance();
+  initPowerManagement();
   fetchStateAndCatalog();
 });
 
@@ -23,6 +24,8 @@ document.addEventListener("DOMContentLoaded", () => {
 function initNavigation() {
   const navItems = document.querySelectorAll(".nav-item");
   const pages = document.querySelectorAll(".settings-page");
+
+  let powerPollInterval = null;
 
   navItems.forEach(item => {
     item.addEventListener("click", () => {
@@ -38,12 +41,20 @@ function initNavigation() {
         }
       });
 
+      if (powerPollInterval) {
+        clearInterval(powerPollInterval);
+        powerPollInterval = null;
+      }
+
       if (targetPageId === "page-backup") {
         fetchSnapshots();
       } else if (targetPageId === "page-keybinds") {
         fetchKeybinds();
       } else if (targetPageId === "page-maintenance") {
         fetchSystemStatus();
+      } else if (targetPageId === "page-power") {
+        fetchPowerStatus();
+        powerPollInterval = setInterval(fetchPowerStatus, 5000);
       }
     });
   });
@@ -557,3 +568,169 @@ async function triggerInstantBackup() {
     consoleEl.textContent += `Lỗi khi tạo sao lưu: ${err}\n`;
   }
 }
+
+// -----------------------------------------------------------------------------
+// 7. Power & Battery Management View
+// -----------------------------------------------------------------------------
+function initPowerManagement() {
+  const cardEco = document.getElementById("card-profile-eco");
+  const cardBal = document.getElementById("card-profile-balanced");
+  const cardTurbo = document.getElementById("card-profile-turbo");
+  const toggleAuto = document.getElementById("toggle-auto-60hz");
+  const btnRefresh = document.getElementById("btn-refresh-power");
+  const btnToggleHz = document.getElementById("btn-manual-toggle-hz");
+
+  if (cardEco) cardEco.addEventListener("click", () => setPowerProfile("eco"));
+  if (cardBal) cardBal.addEventListener("click", () => setPowerProfile("balanced"));
+  if (cardTurbo) cardTurbo.addEventListener("click", () => setPowerProfile("turbo"));
+
+  if (toggleAuto) {
+    toggleAuto.addEventListener("change", (e) => {
+      toggleAuto60Hz(e.target.checked);
+    });
+  }
+
+  if (btnRefresh) {
+    btnRefresh.addEventListener("click", () => {
+      fetchPowerStatus();
+    });
+  }
+
+  if (btnToggleHz) {
+    btnToggleHz.addEventListener("click", () => {
+      toggleRefreshRateManual();
+    });
+  }
+}
+
+async function fetchPowerStatus() {
+  try {
+    const data = await fetch("/api/power/status").then(r => r.json());
+    if (!data) return;
+
+    // Battery gauge
+    const fillEl = document.getElementById("power-battery-fill");
+    const percentEl = document.getElementById("power-battery-percent");
+    const pct = data.battery_percent !== undefined ? data.battery_percent : 100;
+
+    if (fillEl) {
+      fillEl.style.width = `${pct}%`;
+      fillEl.className = "battery-gauge-fill";
+      if (data.battery_status === "Charging") {
+        fillEl.classList.add("charging");
+      } else if (pct <= 20) {
+        fillEl.classList.add("low");
+      } else if (pct <= 35) {
+        fillEl.classList.add("warning");
+      }
+    }
+    if (percentEl) {
+      percentEl.textContent = `${pct}%`;
+    }
+
+    // Status metrics
+    const sourceEl = document.getElementById("power-source-val");
+    if (sourceEl) {
+      sourceEl.textContent = data.ac_online ? "🔌 Cắm sạc AC (Mains)" : "🔋 Dùng pin (Battery)";
+      sourceEl.style.color = data.ac_online ? "var(--accent)" : "#ffcc66";
+    }
+
+    const statusEl = document.getElementById("power-status-val");
+    if (statusEl) {
+      statusEl.textContent = data.battery_status || "--";
+    }
+
+    const wattsEl = document.getElementById("power-watts-val");
+    if (wattsEl) {
+      wattsEl.textContent = `${data.power_watts !== undefined ? data.power_watts : 0} W`;
+    }
+
+    const timeEl = document.getElementById("power-time-val");
+    if (timeEl) {
+      timeEl.textContent = data.time_remaining || "--";
+    }
+
+    const hzEl = document.getElementById("power-hz-val");
+    if (hzEl) {
+      hzEl.textContent = `${data.monitor_name || "Display"} • ${data.current_hz || 60} Hz (Tối đa ${data.max_hz || 60} Hz)`;
+    }
+
+    // Active Profile Card
+    const curProfile = (data.profile || "balanced").toLowerCase();
+    ["eco", "balanced", "turbo"].forEach(p => {
+      const card = document.getElementById(`card-profile-${p}`);
+      if (card) {
+        if (p === curProfile) {
+          card.classList.add("active");
+        } else {
+          card.classList.remove("active");
+        }
+      }
+    });
+
+    // Auto 60Hz Toggle
+    const toggleAuto = document.getElementById("toggle-auto-60hz");
+    if (toggleAuto && data.auto_60hz !== undefined) {
+      toggleAuto.checked = Boolean(data.auto_60hz);
+    }
+  } catch (err) {
+    console.error("Failed to fetch power status:", err);
+  }
+}
+
+async function setPowerProfile(profile) {
+  try {
+    const res = await fetch("/api/power/profile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ profile: profile })
+    }).then(r => r.json());
+
+    if (res.success) {
+      showToast(res.message || `Đã chuyển sang profile ${profile}!`);
+      fetchPowerStatus();
+    } else {
+      showToast(`Lỗi: ${res.message || "Không thể đặt profile."}`);
+    }
+  } catch (err) {
+    showToast(`Lỗi kết nối khi đổi profile: ${err}`);
+  }
+}
+
+async function toggleAuto60Hz(enabled) {
+  try {
+    const res = await fetch("/api/power/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ auto_60hz: enabled })
+    }).then(r => r.json());
+
+    if (res.success) {
+      showToast(enabled ? "Đã bật tự động hạ 60Hz khi dùng pin" : "Đã tắt tự động 60Hz khi dùng pin");
+      fetchPowerStatus();
+    } else {
+      showToast(`Lỗi: ${res.message || "Không thể lưu cài đặt."}`);
+    }
+  } catch (err) {
+    showToast(`Lỗi kết nối khi lưu cài đặt: ${err}`);
+  }
+}
+
+async function toggleRefreshRateManual() {
+  try {
+    const res = await fetch("/api/power/toggle-hz", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" }
+    }).then(r => r.json());
+
+    if (res.success) {
+      showToast(res.message || `Đã chuyển đổi tần số quét sang ${res.current_hz}Hz!`);
+      fetchPowerStatus();
+    } else {
+      showToast(`Lỗi: ${res.message || "Không thể chuyển đổi tần số quét."}`);
+    }
+  } catch (err) {
+    showToast(`Lỗi khi chuyển đổi tần số quét: ${err}`);
+  }
+}
+
