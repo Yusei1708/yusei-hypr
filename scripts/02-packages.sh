@@ -156,6 +156,15 @@ if [ "$IS_ASUS_ROG" = "true" ]; then
     )
 fi
 
+# Thêm tiện ích quản lý năng lượng và pin cho Laptop
+if [ "$IS_LAPTOP" = "true" ]; then
+    echo -e "${BLUE}:: Bổ sung gói quản lý pin và năng lượng cho Laptop (acpi, power-profiles-daemon)...${NC}"
+    PACKAGES+=(
+        acpi
+        power-profiles-daemon
+    )
+fi
+
 # 4. Lọc ra các gói chưa cài đặt để cài bổ sung
 TO_INSTALL=()
 for pkg in "${PACKAGES[@]}"; do

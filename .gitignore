@@ -2,8 +2,6 @@
 # yusei-hypr: Git Ignore Rules
 # ==============================================================================
 
-# Testing & QA suites (Local development only)
-/tests/
 
 # Internal Agent & Teamwork Workspaces
 .agents/

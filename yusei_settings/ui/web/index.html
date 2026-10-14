@@ -34,6 +34,10 @@
           <span class="nav-icon">⚡</span>
           <span>Hyprland</span>
         </div>
+        <div class="nav-item" data-page="page-keybinds">
+          <span class="nav-icon">⌨️</span>
+          <span>Phím tắt</span>
+        </div>
         <div class="nav-item" data-page="page-apps">
           <span class="nav-icon">📱</span>
           <span>Ứng dụng</span>
@@ -45,6 +49,10 @@
         <div class="nav-item" data-page="page-backup">
           <span class="nav-icon">🛡️</span>
           <span>Sao lưu & Khôi phục</span>
+        </div>
+        <div class="nav-item" data-page="page-maintenance">
+          <span class="nav-icon">🛠️</span>
+          <span>Bảo trì Hệ thống</span>
         </div>
       </nav>
 
@@ -253,6 +261,91 @@
           <div id="snapshots-list-container">
             <p style="color: var(--text-muted); font-size: 13px;">Đang tải danh sách snapshot...</p>
           </div>
+        </div>
+      </section>
+
+      <!-- PAGE: PHÍM TẮT (KEYBINDS CHEAT SHEET) -->
+      <section id="page-keybinds" class="settings-page" style="display: none;">
+        <div class="page-header">
+          <div class="page-title">
+            <h1>Tra Cứu Phím Tắt (Keybinds)</h1>
+            <p>Tra cứu hơn 150 tổ hợp phím tắt Hyprland, phân loại theo tính năng và điều hướng</p>
+          </div>
+        </div>
+
+        <div class="keybinds-search-bar">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="keybinds-search" placeholder="Tìm theo tên phím, mô tả hoặc lệnh (vd: terminal, Super + Tab, workspace)...">
+          <span id="keybinds-count-badge" class="count-badge">0 phím tắt</span>
+        </div>
+
+        <div class="subnav-pills keybinds-pills" id="keybinds-category-pills">
+          <div class="pill-tab active" data-cat="all">Tất cả</div>
+        </div>
+
+        <div class="keybinds-grid" id="keybinds-container">
+          <p style="color: var(--text-muted); font-size: 13px;">Đang tải danh sách phím tắt...</p>
+        </div>
+      </section>
+
+      <!-- PAGE: BẢO TRÌ HỆ THỐNG -->
+      <section id="page-maintenance" class="settings-page" style="display: none;">
+        <div class="page-header">
+          <div class="page-title">
+            <h1>Bảo Trì Hệ Thống</h1>
+            <p>Kiểm tra cập nhật yusei-hypr, tạo bản snapshot cấu hình nhanh và theo dõi trạng thái</p>
+          </div>
+        </div>
+
+        <div class="settings-section-card">
+          <div class="settings-section-header">
+            <h3>Cập Nhật Cấu Hình (yusei-hypr update)</h3>
+            <p>Đồng bộ cấu hình từ kho lưu trữ nhưng bảo tồn 100% tệp cá nhân userprefs.conf</p>
+          </div>
+          <div class="maintenance-status-grid">
+            <div class="status-metric">
+              <span class="metric-label">Nhánh Git</span>
+              <span class="metric-val" id="maint-git-branch">main</span>
+            </div>
+            <div class="status-metric">
+              <span class="metric-label">Commit HEAD</span>
+              <span class="metric-val" id="maint-git-commit">--</span>
+            </div>
+            <div class="status-metric">
+              <span class="metric-label">Trạng thái kho</span>
+              <span class="metric-val" id="maint-config-status">Sạch</span>
+            </div>
+            <div class="status-metric">
+              <span class="metric-label">Bản sao lưu gần nhất</span>
+              <span class="metric-val" id="maint-last-backup">--</span>
+            </div>
+          </div>
+          <div class="maintenance-actions" style="margin-top: 14px; display: flex; gap: 10px;">
+            <button class="btn btn-secondary" id="btn-check-update">Kiểm tra bản cập nhật</button>
+            <button class="btn btn-primary" id="btn-apply-update">Chạy cập nhật (Dry-run)</button>
+          </div>
+        </div>
+
+        <div class="settings-section-card">
+          <div class="settings-section-header">
+            <h3>Bảo Vệ & Sao Lưu Nhanh (Snapshot Backup)</h3>
+            <p>Tạo bản sao lưu toàn bộ cấu hình ~/.config vào thư mục yusei-hypr-backup-&lt;timestamp&gt;</p>
+          </div>
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Tạo bản snapshot tức thì</h4>
+              <p>Đóng gói hypr, waybar, rofi, kitty, swaync kèm manifest.json và cập nhật symlink latest</p>
+            </div>
+            <button class="btn btn-primary" id="btn-instant-backup">Tạo Snapshot Ngay</button>
+          </div>
+        </div>
+
+        <div class="settings-section-card">
+          <div class="settings-section-header">
+            <h3>Nhật Ký Hoạt Động (Activity Console)</h3>
+            <p>Đầu ra tiến trình cập nhật và sao lưu hệ thống</p>
+          </div>
+          <pre class="maintenance-console" id="maintenance-console">Sẵn sàng thực thi tác vụ bảo trì...</pre>
         </div>
       </section>
 

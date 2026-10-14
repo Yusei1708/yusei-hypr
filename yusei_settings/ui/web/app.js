@@ -13,6 +13,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initNavigation();
   initCategoryTabs();
   initModalActions();
+  initKeybindsAndMaintenance();
   fetchStateAndCatalog();
 });
 
@@ -39,6 +40,10 @@ function initNavigation() {
 
       if (targetPageId === "page-backup") {
         fetchSnapshots();
+      } else if (targetPageId === "page-keybinds") {
+        fetchKeybinds();
+      } else if (targetPageId === "page-maintenance") {
+        fetchSystemStatus();
       }
     });
   });
@@ -340,4 +345,215 @@ function showToast(message, showUndo = false) {
   toastTimer = setTimeout(() => {
     toast.classList.remove("show");
   }, 6000);
+}
+
+// -----------------------------------------------------------------------------
+// 8. Keybinds Cheat Sheet & Maintenance Controller
+// -----------------------------------------------------------------------------
+let allKeybinds = [];
+let allKeybindCategories = [];
+let activeKeybindCategory = "all";
+
+function initKeybindsAndMaintenance() {
+  const searchInput = document.getElementById("keybinds-search");
+  if (searchInput) {
+    searchInput.addEventListener("input", () => {
+      renderKeybinds();
+    });
+  }
+
+  const btnCheckUpdate = document.getElementById("btn-check-update");
+  if (btnCheckUpdate) {
+    btnCheckUpdate.addEventListener("click", checkSystemUpdate);
+  }
+
+  const btnApplyUpdate = document.getElementById("btn-apply-update");
+  if (btnApplyUpdate) {
+    btnApplyUpdate.addEventListener("click", applySystemUpdate);
+  }
+
+  const btnInstantBackup = document.getElementById("btn-instant-backup");
+  if (btnInstantBackup) {
+    btnInstantBackup.addEventListener("click", triggerInstantBackup);
+  }
+}
+
+async function fetchKeybinds() {
+  const container = document.getElementById("keybinds-container");
+  try {
+    const res = await fetch("/api/keybinds").then(r => r.json());
+    allKeybinds = res.keybinds || [];
+    allKeybindCategories = res.categories || [];
+    renderKeybindCategoryPills();
+    renderKeybinds();
+  } catch (err) {
+    container.innerHTML = `<p style="color: #f2b8b5; font-size: 13px;">Lỗi khi tải danh sách phím tắt: ${err}</p>`;
+  }
+}
+
+function renderKeybindCategoryPills() {
+  const pillsContainer = document.getElementById("keybinds-category-pills");
+  if (!pillsContainer) return;
+
+  pillsContainer.innerHTML = "";
+  const allPill = document.createElement("div");
+  allPill.className = `pill-tab ${activeKeybindCategory === "all" ? "active" : ""}`;
+  allPill.textContent = `Tất cả (${allKeybinds.length})`;
+  allPill.addEventListener("click", () => {
+    activeKeybindCategory = "all";
+    document.querySelectorAll("#keybinds-category-pills .pill-tab").forEach(p => p.classList.remove("active"));
+    allPill.classList.add("active");
+    renderKeybinds();
+  });
+  pillsContainer.appendChild(allPill);
+
+  allKeybindCategories.forEach(cat => {
+    const pill = document.createElement("div");
+    pill.className = `pill-tab ${activeKeybindCategory === cat.id ? "active" : ""}`;
+    pill.textContent = `${cat.name} (${cat.count || 0})`;
+    pill.addEventListener("click", () => {
+      activeKeybindCategory = cat.id;
+      document.querySelectorAll("#keybinds-category-pills .pill-tab").forEach(p => p.classList.remove("active"));
+      pill.classList.add("active");
+      renderKeybinds();
+    });
+    pillsContainer.appendChild(pill);
+  });
+}
+
+function renderKeybinds() {
+  const container = document.getElementById("keybinds-container");
+  const countBadge = document.getElementById("keybinds-count-badge");
+  const query = (document.getElementById("keybinds-search")?.value || "").toLowerCase().trim();
+
+  let filtered = allKeybinds;
+
+  if (activeKeybindCategory !== "all") {
+    filtered = filtered.filter(b => b.category_id === activeKeybindCategory);
+  }
+
+  if (query) {
+    filtered = filtered.filter(b => {
+      const desc = (b.description || "").toLowerCase();
+      const combo = (b.combo_display || "").toLowerCase();
+      const cmd = (b.command || b.args || "").toLowerCase();
+      const cat = (b.category || "").toLowerCase();
+      return desc.includes(query) || combo.includes(query) || cmd.includes(query) || cat.includes(query);
+    });
+  }
+
+  if (countBadge) {
+    countBadge.textContent = `${filtered.length} phím tắt`;
+  }
+
+  if (filtered.length === 0) {
+    container.innerHTML = `<p style="color: var(--text-muted); font-size: 13px; grid-column: 1 / -1;">Không tìm thấy phím tắt phù hợp với tìm kiếm.</p>`;
+    return;
+  }
+
+  container.innerHTML = filtered.map(b => {
+    const keyBadges = (b.keys || []).map(k => `<kbd class="key-badge">${escapeHtml(k)}</kbd>`).join('<span class="key-separator">+</span>');
+    const dispatcher = b.dispatcher ? `<span class="dispatcher-badge">${escapeHtml(b.dispatcher)}</span>` : '';
+    const desc = escapeHtml(b.description || b.dispatcher || 'Phím tắt');
+    const cmd = b.command ? `<div class="keybind-cmd">${escapeHtml(b.command)}</div>` : '';
+    const category = escapeHtml(b.category || '');
+
+    return `
+      <div class="keybind-card">
+        <div class="keybind-card-header">
+          <div class="key-combo">${keyBadges}</div>
+          ${dispatcher}
+        </div>
+        <div class="keybind-card-body">
+          <div class="keybind-desc">${desc}</div>
+          ${cmd}
+          <span class="keybind-category-tag">${category}</span>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+function escapeHtml(str) {
+  if (!str) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+async function fetchSystemStatus() {
+  try {
+    const res = await fetch("/api/system/status").then(r => r.json());
+    document.getElementById("maint-git-branch").textContent = res.git_branch || "main";
+    document.getElementById("maint-git-commit").textContent = res.git_hash || (res.git_commit ? res.git_commit.slice(0, 8) : "--");
+    document.getElementById("maint-config-status").textContent = res.dirty ? "Có thay đổi (Dirty)" : "Sạch (Clean)";
+    document.getElementById("maint-last-backup").textContent = res.last_backup || "Chưa có";
+  } catch (err) {
+    console.error("Failed to fetch system status:", err);
+  }
+}
+
+async function checkSystemUpdate() {
+  const consoleEl = document.getElementById("maintenance-console");
+  consoleEl.textContent = ":: [Update Check] Đang kiểm tra bản cập nhật từ kho lưu trữ Git...\n";
+  try {
+    const res = await fetch("/api/system/update/check").then(r => r.json());
+    consoleEl.textContent += `Commit hiện tại: ${res.current_commit || 'N/A'}\n`;
+    consoleEl.textContent += `Trạng thái: ${res.message || 'Hệ thống đã cập nhật.'}\n`;
+    showToast(res.message || "Kiểm tra cập nhật hoàn tất.");
+  } catch (err) {
+    consoleEl.textContent += `Lỗi khi kiểm tra: ${err}\n`;
+  }
+}
+
+async function applySystemUpdate() {
+  const consoleEl = document.getElementById("maintenance-console");
+  consoleEl.textContent = ":: [Update Apply] Đang tiến hành chạy mô phỏng cập nhật (Dry-run)...\n";
+  try {
+    const res = await fetch("/api/system/update/apply", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmed: true, dry_run: true })
+    }).then(r => r.json());
+
+    if (res.log) {
+      consoleEl.textContent += res.log;
+    }
+    if (res.success) {
+      consoleEl.textContent += "\n✓ Quá trình kiểm tra cập nhật hoàn tất an toàn!\n";
+      showToast("Đã mô phỏng cập nhật thành công.");
+    } else {
+      consoleEl.textContent += "\n⚠️ Cập nhật báo lỗi hoặc cảnh báo.\n";
+    }
+  } catch (err) {
+    consoleEl.textContent += `Lỗi khi thực thi cập nhật: ${err}\n`;
+  }
+}
+
+async function triggerInstantBackup() {
+  const consoleEl = document.getElementById("maintenance-console");
+  consoleEl.textContent = ":: [Snapshot Backup] Đang thực thi scripts/03-backup.sh để tạo bản snapshot an toàn...\n";
+  try {
+    const res = await fetch("/api/system/backup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({})
+    }).then(r => r.json());
+
+    if (res.log) {
+      consoleEl.textContent += res.log;
+    }
+    if (res.success) {
+      consoleEl.textContent += `\n✓ Đã tạo thành công bản snapshot: ${res.backup_dir}\n`;
+      showToast("Tạo bản snapshot sao lưu thành công!");
+      fetchSystemStatus();
+    } else {
+      consoleEl.textContent += `\n❌ Lỗi tạo sao lưu: ${res.message || 'Thao tác không thành công.'}\n`;
+    }
+  } catch (err) {
+    consoleEl.textContent += `Lỗi khi tạo sao lưu: ${err}\n`;
+  }
 }

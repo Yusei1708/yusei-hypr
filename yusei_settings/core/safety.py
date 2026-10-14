@@ -9,6 +9,7 @@ import os
 import shutil
 import json
 import time
+import subprocess
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
@@ -215,6 +216,23 @@ class SafetyEngine:
 
             elif item["action"] == "modify_source_directive":
                 target_p.write_text(f"source = ./animations/{source_p.name}\n", encoding="utf-8")
+
+        if category == "wallpaper":
+            try:
+                engine_script = Path(__file__).resolve().parent.parent.parent / "scripts" / "theme-engine.sh"
+                if engine_script.exists():
+                    env = os.environ.copy()
+                    env["HOME"] = str(self.home)
+                    subprocess.run(
+                        [str(engine_script), str(Path(source_path).resolve())],
+                        env=env,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=False,
+                        timeout=5,
+                    )
+            except Exception:
+                pass
 
         return {
             "success": True,

@@ -30,11 +30,17 @@ CONFIG_DIRS=("hypr" "waybar" "rofi" "kitty" "swaync" "wlogout" "fastfetch" "btop
 for dir in "${CONFIG_DIRS[@]}"; do
     if [[ -d "$SCRIPT_DIR/config/$dir" ]]; then
         if [[ "$dir" == "hypr" && -d "$HOME/.config/hypr" ]]; then
-            # Bảo vệ cấu hình cá nhân của người dùng (UserConfigs và UserScripts)
+            # Bảo vệ cấu hình cá nhân của người dùng (userprefs.conf, UserConfigs và UserScripts)
             TMP_PRESERVE="/tmp/yusei-hypr/preserve_user_$$"
             mkdir -p "$TMP_PRESERVE"
+            HAS_USER_PREFS=false
             HAS_USER_CONFIGS=false
             HAS_USER_SCRIPTS=false
+
+            if [[ -f "$HOME/.config/hypr/userprefs.conf" ]]; then
+                cp -a "$HOME/.config/hypr/userprefs.conf" "$TMP_PRESERVE/userprefs.conf"
+                HAS_USER_PREFS=true
+            fi
 
             if [[ -d "$HOME/.config/hypr/UserConfigs" ]]; then
                 cp -a "$HOME/.config/hypr/UserConfigs" "$TMP_PRESERVE/"
@@ -51,6 +57,16 @@ for dir in "${CONFIG_DIRS[@]}"; do
             cp -a "$SCRIPT_DIR/config/hypr" "$HOME/.config/"
 
             # Khôi phục các tùy biến cá nhân của người dùng
+            if [ "$HAS_USER_PREFS" = "true" ]; then
+                cp -a "$TMP_PRESERVE/userprefs.conf" "$HOME/.config/hypr/userprefs.conf"
+                echo -e "${GREEN}✓ Đã bảo tồn an toàn cấu hình cá nhân tại: ~/.config/hypr/userprefs.conf${NC}"
+            else
+                if [[ ! -f "$HOME/.config/hypr/userprefs.conf" && -f "$SCRIPT_DIR/config/hypr/userprefs.conf" ]]; then
+                    cp -a "$SCRIPT_DIR/config/hypr/userprefs.conf" "$HOME/.config/hypr/userprefs.conf"
+                    echo -e "${GREEN}✓ Đã khởi tạo cấu hình cá nhân mẫu: ~/.config/hypr/userprefs.conf${NC}"
+                fi
+            fi
+
             if [ "$HAS_USER_CONFIGS" = "true" ]; then
                 cp -a "$TMP_PRESERVE/UserConfigs"/* "$HOME/.config/hypr/UserConfigs/" 2>/dev/null || true
                 echo -e "${GREEN}✓ Đã bảo tồn an toàn tùy biến của người dùng tại: ~/.config/hypr/UserConfigs${NC}"
@@ -71,6 +87,12 @@ for dir in "${CONFIG_DIRS[@]}"; do
     fi
 done
 
+# Đảm bảo ~/.config/hypr/userprefs.conf luôn tồn tại sau khi cài đặt
+if [[ ! -f "$HOME/.config/hypr/userprefs.conf" && -f "$SCRIPT_DIR/config/hypr/userprefs.conf" ]]; then
+    cp -a "$SCRIPT_DIR/config/hypr/userprefs.conf" "$HOME/.config/hypr/userprefs.conf"
+    echo -e "${GREEN}✓ Đã khởi tạo template cấu hình: ~/.config/hypr/userprefs.conf${NC}"
+fi
+
 # Đảm bảo phân quyền thực thi cho toàn bộ script
 if [[ -d "$HOME/.config/hypr/scripts" ]]; then
     find "$HOME/.config/hypr/scripts" -type f -name "*.sh" -exec chmod +x {} + 2>/dev/null || true
@@ -87,7 +109,7 @@ if [ "${HAS_NVIDIA:-false}" = "true" ]; then
     echo -e "${YELLOW}:: Đang kích hoạt nạp nvidia.conf trong hyprland.conf...${NC}"
     if [[ -f "$HOME/.config/hypr/hyprland.conf" ]]; then
         # Khớp chính xác cả "# source = ./nvidia.conf" và "# source = ~/.config/hypr/nvidia.conf"
-        sed -i -E 's|#\s*source\s*=\s*(\./|~/\.config/hypr/)nvidia\.conf|source = ./nvidia.conf|g' "$HOME/.config/hypr/hyprland.conf"
+        sed -i -E 's@#\s*source\s*=\s*(\./|~/\.config/hypr/)nvidia\.conf@source = ./nvidia.conf@g' "$HOME/.config/hypr/hyprland.conf"
         echo -e "${GREEN}✓ Đã kích hoạt cấu hình tối ưu card đồ họa NVIDIA trong hyprland.conf!${NC}"
     fi
 fi

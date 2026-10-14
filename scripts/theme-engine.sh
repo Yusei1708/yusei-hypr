@@ -198,6 +198,7 @@ EOF
 
 # 8. Record State Persistence
 if [[ -n "$TARGET_WALL" ]]; then
+    rm -f "$HYPR_DIR/.current_wallpaper"
     echo "$TARGET_WALL" > "$HYPR_DIR/.current_wallpaper"
 fi
 echo "material-3" > "$HYPR_DIR/.current_theme"

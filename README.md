@@ -19,7 +19,7 @@
 [![Hyprland](https://img.shields.io/badge/Hyprland-00a8ff?style=for-the-badge&logo=wayland&logoColor=white)](https://hyprland.org/)
 [![Design Language](https://img.shields.io/badge/Design-End--4_Material_3-d3bbff?style=for-the-badge)](https://github.com/end-4/dots-hyprland)
 [![Operational Core](https://img.shields.io/badge/Core-JaKooLit_Backbone-ff79c6?style=for-the-badge)](https://github.com/JaKooLit/Arch-Hyprland)
-[![License: MIT](https://img.shields.io/badge/License-MIT-34d399?style=for-the-badge)](LICENSE)
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue?style=for-the-badge)](LICENSE)
 
 <br/>
 
@@ -36,10 +36,13 @@
 [⚙️ Settings App](#-yusei-settings-control-center) •
 [🧰 Optional Apps](#-optional-applications--system-tools) •
 [🚀 Installation](#-installation-guide) •
+[🔄 Updates](#-system-updates-updatesh) •
+[🗑️ Uninstall](#-clean-uninstallation-uninstallsh) •
 [🎨 Theming](#-dynamic-theming-engine-material-you) •
 [⌨️ Keybindings](#-keybindings-reference) •
 [🛡️ Safety & Rollback](#-safety-backups--instant-rollback) •
-[🔧 FAQ](#-troubleshooting--faq)
+[🔧 FAQ](#-troubleshooting--faq) •
+[📜 License](#-license)
 
 </div>
 
@@ -110,37 +113,55 @@ By separating the visual presentation layer from the core operational layer, **y
 
 ## 🏛️ System Architecture
 
-The codebase enforces a 6-layer decoupled design pattern where each domain maintains zero direct cyclic dependencies:
+The codebase enforces an 8-layer decoupled design pattern where each domain maintains zero direct cyclic dependencies:
 
 ```text
 yusei-hypr/
+├── LICENSE                     # GNU General Public License v3.0 text
 ├── install.sh                  # Interactive CLI entrypoint & non-interactive flags (-y)
+├── update.sh                   # Root updater: git sync, pre-backup & config sync (userprefs.conf protected)
+├── uninstall.sh                # Root uninstaller: curses radiolist snapshot picker & system cleanup
 ├── README.md                   # Technical reference & user manual
 ├── .gitignore                  # Git development exclusions
 ├── assets/
-│   ├── wallpapers/             # Bundled 4K high-resolution wallpapers
-│   └── icons/                  # Material vector glyphs and icons
+│   └── wallpapers/             # Bundled 4K high-resolution wallpapers
+├── bin/
+│   ├── yusei-settings          # Control Center CLI/GUI/Web launcher
+│   └── theme-engine.sh         # Dynamic Material You color extraction CLI wrapper
+├── yusei_settings/             # Zero-dependency Control Center (Python standard library)
+│   ├── core/                   # Discovery, 5-stage Safety, Keybind Parser, State engines
+│   ├── ui/                     # Windows 11 Fluent Web UI & GTK4 Adwaita frontend
+│   └── server.py               # Local HTTP API server (/api/keybinds, /api/system/*)
 ├── scripts/                    # Automation & Lifecycle Management
-│   ├── 01-detect.sh            # Distro, GPU (NVIDIA/Intel/AMD), and chassis probe
+│   ├── hardware-detect.sh      # Standalone hardware detection subsystem (GPU, Chassis, Audio)
+│   ├── 01-detect.sh            # Distro, GPU (NVIDIA/Intel/AMD), and chassis probe compatibility shim
 │   ├── 02-packages.sh          # Dependency resolver using pacman and yay/paru
-│   ├── 03-backup.sh            # Hardened snapshot generator with manifest.json
-│   ├── 04-install-configs.sh   # Layered deployment & permission supervisor
+│   ├── 03-backup.sh            # Standardized snapshot generator (~/.config/yusei-hypr-backup-<timestamp>/ with manifest.json)
+│   ├── 04-install-configs.sh   # Layered deployment & config/hypr/userprefs.conf preservation
 │   ├── 05-optional-apps.sh     # Optional curated app checklist & TUI installer
-│   ├── rollback.sh             # Idempotent 1-command rollback engine
+│   ├── rollback.sh             # Idempotent 1-command rollback engine (restores backup snapshots)
 │   ├── theme-engine.sh         # Dynamic Material You color extractor & dispatcher
 │   └── launch-daemons.sh       # Singleton daemon lifecycle supervisor
+├── tests/                           # Comprehensive automated test suite
+│   ├── test_syntax.sh               # Shell syntax (bash -n) and JSON validation
+│   ├── test_docs_and_licensing.sh   # GPL-3.0 licensing & documentation checks
+│   ├── test_config_isolation.sh     # userprefs.conf preservation & backups
+│   ├── test_hardware_detect.sh      # Hardware detection subsystem test harness
+│   ├── test_management_scripts.sh   # update.sh & uninstall.sh lifecycle tests
+│   └── run-all-tests.sh             # Master test runner (all 6 suites)
 └── config/
     ├── hypr/                   # Compositor Layer (Hyprland Core)
-    │   ├── hyprland.conf       # 6-layer modular configuration loader
-    │   ├── keybinds.conf       # 131 annotated shortcuts with hardware keycodes
+    │   ├── hyprland.conf       # 8-layer modular configuration loader (sources userprefs.conf)
+    │   ├── userprefs.conf      # Layer 8: Isolated user customization (Monitors, env, autostart, custom binds)
+    │   ├── keybinds.conf       # 159 annotated shortcuts with hardware keycodes & bindd
     │   ├── rules.conf          # Semantic window tags, floating dialogs, PiP rules
     │   ├── autostart.conf      # D-Bus, systemd environment, Polkit, daemons
     │   ├── animations.conf     # Physics-based expressive bezier curves
-    │   ├── decorations.conf    # 16px rounding, Kawase blur passes, shadows
+    │   ├── decorations.conf    # 16px rounding, Kawase blur passes, shadows & dynamic border tokens
     │   ├── env.conf            # Toolkit environments, Wayland flags & Fcitx5 IME
     │   ├── monitors.conf       # Universal multi-monitor auto-resolution
     │   ├── nvidia.conf         # Dedicated NVIDIA driver parameters
-    │   ├── colors.conf         # Dynamically generated Hyprland color tokens
+    │   ├── colors.conf         # Dynamically generated Hyprland color tokens ($primary $secondary)
     │   ├── hypridle.conf       # 4-stage idle power listener
     │   ├── hyprlock.conf       # Modern pill input lockscreen
     │   ├── scripts/            # 64 verified operational utility scripts
@@ -234,6 +255,17 @@ yusei-hypr/
   - **Kitty**: 171 curated color themes with dynamic 8-color palette swatches.
   - **Hyprland**: 17 physics-based animation presets & decoration styles.
   - **Wallpapers**: 21 high-definition curated backgrounds with thumbnail gallery.
+- **🎨 Dynamic Theming Integration**:
+  - Selecting any wallpaper automatically triggers `scripts/theme-engine.sh` / `bin/theme-engine.sh` to extract harmonic Material You palette tokens.
+  - Concurrently updates Hyprland (`colors.conf` with `$primary` and `$secondary`), Waybar (`colors.css`), Rofi (`colors.rasi`), SwayNC (`colors.css`), and Kitty (`theme.conf`).
+  - Seamless hot-reloads running components without session disruption; active state persists across reboots.
+- **⌨️ Keybinds Cheat Sheet View (`/api/keybinds`)**:
+  - Real-time parser reads `config/hypr/keybinds.conf` and extracts 159+ active shortcuts across 12 functional categories (Window Focus, Workspaces, Screenshots, Multimedia Fn Keys, Mouse Controls, etc.).
+  - Instant client-side search filtering by key combination, description, or dispatcher with tokenized visual `<kbd>` badges.
+- **🔧 System Maintenance Tab (`/api/system/*`)**:
+  - Live system telemetry: Git branch, commit hash, repository clean/dirty status, and `userprefs.conf` integrity verification.
+  - 1-Click Backup Snapshot: Generates standardized backup directories (`~/.config/yusei-hypr-backup-<timestamp>/` with `manifest.json`) via `scripts/03-backup.sh`.
+  - System Update Integration: Checks upstream repository status and executes `./update.sh` with safe `--dry-run` or live apply modes.
 - **Dual Frontend Architecture**:
   - **Web / Fluent UI** (`--web`): Windows 11 Fluent Design / dark Mica theme with acrylic effects, responsive sidebar, and search filtering.
   - **Native GTK4 / Libadwaita** (`--gui`): True native Linux desktop window leveraging `Adw.PreferencesWindow` and `Gtk.FlowBox`.
@@ -357,9 +389,9 @@ To bypass prompts and automatically answer "yes" to all installation steps:
    - Disables competing display managers (GDM, LightDM, LXDM).
    - Installs `sddm`, Qt6 libraries, deploys `simple-sddm-2` theme into `/usr/share/sddm/themes/`, and enables `sddm.service`.
 6. **🛡️ Automated Snapshot Backup (`03-backup.sh`)**:
-   - Safely archives existing `~/.config/{hypr,waybar,rofi,swaync,kitty,...}` directories into `~/.config/yusei-hypr-backups/backup_<timestamp>/` with `manifest.json`.
+   - Safely archives existing `~/.config/{hypr,waybar,rofi,swaync,kitty,...}` directories into `~/.config/yusei-hypr-backup-<timestamp>/` with `manifest.json`.
 7. **🚀 Safe Layer Deployment (`04-install-configs.sh`)**:
-   - Non-destructive deployment: preserves user-customized `UserConfigs/` and `UserScripts/` without data loss.
+   - Non-destructive deployment: preserves user-customized `UserConfigs/` and `UserScripts/` without data loss, and protects `config/hypr/userprefs.conf`.
    - Automatically uncomments `source = ./nvidia.conf` in `hyprland.conf` if NVIDIA is detected.
    - Enforces `chmod +x` across all utility scripts.
 8. **🩺 System Verification & Health Check (`05-verify.sh`)**:
@@ -367,8 +399,76 @@ To bypass prompts and automatically answer "yes" to all installation steps:
 9. **🧰 Optional Curated Applications Catalog (`05-optional-apps.sh`)**:
    - Interactive TUI checklist (Whiptail/Dialog with pure-Bash fallback) for web browsers (Google Chrome, Brave, Chromium), system administration (Mission Center, GParted, Timeshift, UFW firewall), login manager (SDDM + Sugar Candy theme), dev tools (Git, VS Code), and system monitoring / aesthetics (Btop, Pokemon Colorscripts, Cava).
    - Automatically detects pre-installed applications to avoid duplicate installation, supports `--dry-run`, `--list-apps`, and post-install triggers.
-10. **🗑️ Clean System Uninstaller & Rollback (`scripts/uninstall.sh`)**:
-    - Reverts `~/.config` to the latest pre-install snapshot via `rollback.sh`, cleans up created modprobe configs, and disables system services.
+10. **🗑️ Clean System Uninstaller & Rollback (`uninstall.sh`)**:
+    - Reverts `~/.config` to the selected pre-install backup snapshot via `rollback.sh`, cleans up created modprobe configs, and disables system services.
+
+---
+
+## 🔄 System Updates (update.sh)
+
+`yusei-hypr` includes an automated, non-destructive root maintenance tool (`./update.sh`) to keep your configuration, scripts, and system components up to date (cập nhật) with upstream repository improvements while guaranteeing that your custom tweaks (`~/.config/hypr/userprefs.conf`) are strictly preserved.
+
+```bash
+# Run interactive system update (default)
+./update.sh
+
+# Non-interactive automated update (auto-accepts all prompts)
+./update.sh -y
+
+# Safe dry-run simulation (verifies changes without modifying files or git pulling)
+./update.sh --dry-run
+
+# Local config sync only (skips git pull)
+./update.sh --skip-git
+
+# Update configs without reloading the compositor or active daemons
+./update.sh --no-reload
+```
+
+### 📋 Update Workflow & Execution Stages:
+1. **🔍 Git Synchronization**:
+   - Checks the active branch against remote upstream.
+   - Fast-forwards commits cleanly (can be skipped with `--skip-git` for offline or local testing).
+2. **🛡️ Automated Pre-Backup Snapshot**:
+   - Immediately creates an isolated snapshot backup directory at `~/.config/yusei-hypr-backup-<timestamp>/` containing `manifest.json`.
+   - Updates `~/.config/yusei-hypr-backup-latest` symlink for instant 1-click restore (khôi phục).
+3. **🚀 Safe Configuration Sync**:
+   - Synchronizes updated compositor scripts, layouts, and system configurations.
+   - **Guaranteed Isolation**: Never overwrites, alters, or replaces your `~/.config/hypr/userprefs.conf`, keeping custom monitors, keybindings, autostart programs, and environment overrides completely untouched.
+4. **🔄 Conditional Session Reload**:
+   - Automatically detects whether Hyprland or Wayland daemons (`waybar`, `swaync`) are actively running.
+   - Dispatches non-intrusive reloads (`hyprctl reload`, `kill -SIGUSR2 waybar`, `swaync-client -rs`) without disrupting your open applications (can be disabled with `--no-reload`).
+
+---
+
+## 🗑️ Clean Uninstallation (uninstall.sh)
+
+If you ever wish to completely remove `yusei-hypr`, revert your desktop configurations back to their exact pre-installation state, and cleanly deactivate related background services, execute the root uninstallation wizard:
+
+```bash
+# Launch interactive curses uninstaller (Whiptail / Dialog)
+./uninstall.sh
+
+# Force pure-bash text CLI fallback mode (no curses or dialog needed)
+./uninstall.sh --cli
+
+# Safe dry-run simulation (verifies actions without modifying system)
+./uninstall.sh --dry-run
+
+# Non-interactive removal with auto-selected latest backup snapshot
+./uninstall.sh -y
+```
+
+### 🌟 Key Uninstallation Capabilities:
+- **🎛️ Interactive Curses Radiolist Snapshot Picker**:
+  - Dynamically discovers all backup snapshot archives in `~/.config/` matching `yusei-hypr-backup-*`.
+  - Presents a graphical radiolist menu (via `whiptail` or `dialog`) allowing you to pick precisely which pre-install backup snapshot you wish to restore.
+  - Automatically falls back to a clean, numbered pure-Bash terminal menu (`--cli`) if curses dialog tools are unavailable.
+- **🛡️ Full Snapshot Restoration (`rollback.sh`)**:
+  - Automatically restores your chosen snapshot backup via `scripts/rollback.sh`, reinstates original symlinks and files, and purges all installed dotfiles.
+- **🧹 System Services & Config Cleanup Checklist**:
+  - Prompts to deactivate and disable systemd services installed during setup (`sddm.service`, `ufw.service`, `supergfxd.service`).
+  - Reverts NVIDIA Early KMS modules in `/etc/mkinitcpio.conf` and cleans up `/etc/modprobe.d/nvidia.conf` if configured.
 
 ---
 
@@ -418,48 +518,138 @@ To bypass prompts and automatically answer "yes" to all installation steps:
 
 ## ⌨️ Keybindings Reference
 
-The default `$mainMod` is the **Super** key (Windows key).
+The default `$mainMod` is the **Super** key (Windows key). All keybindings use hardware-independent keycodes where appropriate to guarantee international keyboard layout compatibility.
+
+### ⚡ Keybinding Cheat Sheet (Quick Reference)
+
+Quickly navigate the desktop using **Super + Tab** (cycle next workspace), **Super + Shift + Tab** (previous workspace), and **Alt + Tab** (cycle next window & bring to top):
+
+| Key Combination | Action / Dispatcher | Description | Category |
+| :--- | :--- | :--- | :--- |
+| <kbd>Super</kbd> + <kbd>Tab</kbd> (`Super + Tab`) | `workspace, m+1` | Switch to next workspace | Workspace Cycling |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>Tab</kbd> (`Super + Shift + Tab`) | `workspace, m-1` | Switch to previous workspace | Workspace Cycling |
+| <kbd>Alt</kbd> + <kbd>Tab</kbd> (`Alt + Tab`) | `cyclenext` | Cycle focus to next window & bring active to top | Window Cycling |
+| <kbd>Super</kbd> + <kbd>D</kbd> | `exec, rofi -show drun ...` | Open application launcher (Rofi) | Application Launchers |
+| <kbd>Super</kbd> + <kbd>Return</kbd> | `exec, kitty` | Open default GPU terminal (Kitty) | Application Launchers |
+| <kbd>Super</kbd> + <kbd>Q</kbd> | `killactive` | Close currently focused window | Window Control |
+| <kbd>Super</kbd> + <kbd>Space</kbd> | `togglefloating` | Toggle floating mode for active window | Window Control |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>F</kbd> | `fullscreen, 0` | Toggle true fullscreen state | Window Control |
+| <kbd>Super</kbd> + <kbd>Ctrl</kbd> + <kbd>F</kbd> | `fullscreen, 1` | Maximize window (preserves bar visibility) | Window Control |
+| <kbd>Super</kbd> + <kbd>M</kbd> (Split Ratio) | `splitratio 0.3` | Adjust split ratio to 0.3 | Layout Dispatches |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>I</kbd> | `layoutmsg, togglesplit` | Toggle split layout orientation (dwindle) | Layout Dispatches |
+| <kbd>Super</kbd> + <kbd>P</kbd> | `pseudo` | Toggle Dwindle pseudotiling mode | Window Control |
+| <kbd>Super</kbd> + <kbd>G</kbd> | `togglegroup` | Group/tab windows together in single container | Window Control |
+| <kbd>Super</kbd> + <kbd>Ctrl</kbd> + <kbd>Arrow Keys</kbd> | `movewindow` | Move active window position in tiling tree | Window Movement |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>Arrow Keys</kbd> | `resizeactive` | Resize active window dimensions (-50/+50 px) | Window Resizing |
+| <kbd>Super</kbd> + <kbd>Alt</kbd> + <kbd>Arrow Keys</kbd> | `swapwindow` | Swap active window with neighbor window | Window Swapping |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>N</kbd> | `exec, swaync-client -t -sw` | Toggle SwayNC Control Center & notification panel | Bar & Notifications |
+| <kbd>Super</kbd> + <kbd>N</kbd> (Night Light) | `exec, Hyprsunset.sh toggle` | Toggle Night Light (Hyprsunset) | Bar & Notifications |
+| <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>L</kbd> | `exec, LockScreen.sh` | Lock screen with Hyprlock | System & Session |
+| <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>P</kbd> | `exec, Wlogout.sh` | Open Wlogout Power & Session exit menu | System & Session |
+| <kbd>Super</kbd> + <kbd>Alt</kbd> + <kbd>V</kbd> | `exec, ClipManager.sh` | Open Clipboard History Manager (Cliphist) | Features & Utilities |
+| <kbd>Super</kbd> + <kbd>Print</kbd> | `exec, ScreenShot.sh --now` | Capture fullscreen screenshot to file & clipboard | Screenshots |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>Print</kbd> | `exec, ScreenShot.sh --area` | Capture interactive selection area screenshot | Screenshots |
+| <kbd>Alt</kbd> + <kbd>Print</kbd> | `exec, ScreenShot.sh --active` | Capture active window screenshot to clipboard | Screenshots |
+| <kbd>Super</kbd> + <kbd>LMB</kbd> | `movewindow` | Click & drag with mouse to move window position | Mouse Controls |
+| <kbd>Super</kbd> + <kbd>RMB</kbd> | `resizewindow` | Click & drag with mouse to resize window dimensions | Mouse Controls |
+| <kbd>Super</kbd> + <kbd>1..0</kbd> (`code:10..19`) | `workspace, 1..10` | Switch directly to Workspace 1 through 10 | Workspaces |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>1..0</kbd> (`code:10..19`) | `movetoworkspace, 1..10` | Move focused window to Workspace 1 through 10 | Workspaces |
+| <kbd>Super</kbd> + <kbd>U</kbd> | `togglespecialworkspace` | Toggle dropdown scratchpad workspace | Workspaces |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>U</kbd> | `movetoworkspace, special` | Move active window into scratchpad | Workspaces |
+| <kbd>XF86AudioRaiseVolume</kbd> | `exec, Volume.sh --inc` | Increase audio volume (+5%) | Multimedia Fn |
+| <kbd>XF86AudioLowerVolume</kbd> | `exec, Volume.sh --dec` | Decrease audio volume (-5%) | Multimedia Fn |
+| <kbd>XF86AudioMute</kbd> | `exec, Volume.sh --toggle` | Toggle mute / unmute audio output | Multimedia Fn |
+| <kbd>XF86AudioPlay</kbd> / <kbd>XF86AudioPause</kbd> | `exec, MediaCtrl.sh --pause` | Play or pause active media playback | Multimedia Fn |
+| <kbd>XF86AudioNext</kbd> | `exec, MediaCtrl.sh --nxt` | Next audio track | Multimedia Fn |
+| <kbd>XF86AudioPrev</kbd> | `exec, MediaCtrl.sh --prv` | Previous audio track | Multimedia Fn |
+| <kbd>XF86MonBrightnessUp</kbd> | `exec, Brightness.sh --inc` | Increase screen backlight brightness (+5%) | Hardware Fn |
+| <kbd>XF86MonBrightnessDown</kbd> | `exec, Brightness.sh --dec` | Decrease screen backlight brightness (-5%) | Hardware Fn |
 
 ### 🖥️ Window & Layout Control
 | Shortcut | Action | Description |
 | :--- | :--- | :--- |
 | <kbd>Super</kbd> + <kbd>Q</kbd> | `killactive` | Close currently focused window |
-| <kbd>Super</kbd> + <kbd>V</kbd> | `togglefloating` | Toggle floating mode for active window |
-| <kbd>Super</kbd> + <kbd>F</kbd> | `fullscreen, 0` | Toggle true fullscreen |
+| <kbd>Super</kbd> + <kbd>Space</kbd> | `togglefloating` | Toggle floating mode for active window |
+| <kbd>Super</kbd> + <kbd>Alt</kbd> + <kbd>Space</kbd> | `workspaceopt allfloat` | Toggle floating mode for all windows on workspace |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>F</kbd> | `fullscreen, 0` | Toggle true fullscreen state |
+| <kbd>Super</kbd> + <kbd>Ctrl</kbd> + <kbd>F</kbd> | `fullscreen, 1` | Maximize window (preserves bar visibility) |
+| <kbd>Super</kbd> + <kbd>M</kbd> (Split Ratio) | `splitratio 0.3` | Set split ratio to 0.3 (does not exit session) |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>I</kbd> | `layoutmsg, togglesplit` | Toggle split layout orientation (dwindle) |
 | <kbd>Super</kbd> + <kbd>P</kbd> | `pseudo` | Toggle Dwindle pseudotiling mode |
-| <kbd>Super</kbd> + <kbd>J</kbd> | `togglesplit` | Toggle split orientation (horizontal/vertical) |
 | <kbd>Super</kbd> + <kbd>G</kbd> | `togglegroup` | Group/tab windows together in single container |
-| <kbd>Super</kbd> + <kbd>Left</kbd> / <kbd>Right</kbd> / <kbd>Up</kbd> / <kbd>Down</kbd> | `movefocus` | Shift focus to adjacent window |
-| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>Arrows</kbd> | `movewindow` | Move active window position in tiling tree |
-| <kbd>Super</kbd> + <kbd>Alt</kbd> + <kbd>Arrows</kbd> | `resizewindow` | Resize active window dimensions |
+| <kbd>Alt</kbd> + <kbd>Tab</kbd> | `cyclenext` | Cycle next window & bring active to top |
+| <kbd>Super</kbd> + <kbd>Left</kbd> / <kbd>Right</kbd> / <kbd>Up</kbd> / <kbd>Down</kbd> | `movefocus` | Shift focus to adjacent window in direction |
+| <kbd>Super</kbd> + <kbd>Ctrl</kbd> + <kbd>Arrow Keys</kbd> | `movewindow` | Move active window position in tiling tree |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>Arrow Keys</kbd> | `resizeactive` | Resize active window dimensions (-50/+50 px) |
+| <kbd>Super</kbd> + <kbd>Alt</kbd> + <kbd>Arrow Keys</kbd> | `swapwindow` | Swap active window with neighbor window |
+
+### 🖱️ Mouse Controls
+| Shortcut | Action | Description |
+| :--- | :--- | :--- |
+| <kbd>Super</kbd> + <kbd>LMB</kbd> | `movewindow` | Move floating or tiled window by dragging left mouse button |
+| <kbd>Super</kbd> + <kbd>RMB</kbd> | `resizewindow` | Resize active window by dragging right mouse button |
+| <kbd>Super</kbd> + <kbd>Scroll Down</kbd> / <kbd>Up</kbd> | `workspace, e+1 / e-1` | Cycle next / previous workspace with mouse scroll wheel |
+| <kbd>Super</kbd> + <kbd>Alt</kbd> + <kbd>Scroll Up</kbd> / <kbd>Down</kbd> | `cursor:zoom_factor` | Zoom desktop magnifier in / out |
 
 ### 🚀 Application & System Launchers
 | Shortcut | Action | Target Component / Application |
 | :--- | :--- | :--- |
+| <kbd>Super</kbd> + <kbd>D</kbd> | Application Launcher | `Rofi` (`rofi -show drun -modi drun,filebrowser,run,window`) |
 | <kbd>Super</kbd> + <kbd>Return</kbd> | Terminal Emulator | `Kitty` (GPU accelerated, blurred) |
-| <kbd>Super</kbd> + <kbd>Space</kbd> or <kbd>Super</kbd> + <kbd>R</kbd> | Application Launcher | `Rofi` (Material 3 centered floating card) |
-| <kbd>Super</kbd> + <kbd>E</kbd> | File Manager | `Thunar` / `Dolphin` |
-| <kbd>Super</kbd> + <kbd>N</kbd> | Control Center | `SwayNC` (Quick Toggles, DND, Volume, Brightness) |
-| <kbd>Super</kbd> + <kbd>L</kbd> | Screen Lock | `Hyprlock` (Material pill input screen) |
-| <kbd>Super</kbd> + <kbd>M</kbd> | Power Exit Menu | `Wlogout.sh` (Lock, Logout, Suspend, Reboot, Shutdown) |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>Return</kbd> | Dropdown Scratchpad Terminal | `Dropterminal.sh` (Kitty dropdown) |
+| <kbd>Super</kbd> + <kbd>B</kbd> | Default Web Browser | `xdg-open "https://"` |
+| <kbd>Super</kbd> + <kbd>E</kbd> | File Manager | `Thunar` (or system default file manager) |
+| <kbd>Super</kbd> + <kbd>A</kbd> | Desktop Overview | `OverviewToggle.sh` |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>N</kbd> | Control Center | `SwayNC` (Quick Toggles, DND, Volume, Brightness) |
+| <kbd>Super</kbd> + <kbd>N</kbd> (Night Light) | Night Light | `Hyprsunset.sh toggle` (Color temperature toggle) |
+| <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>L</kbd> | Screen Lock | `Hyprlock` (`LockScreen.sh`) |
+| <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>P</kbd> | Power Exit Menu | `Wlogout.sh` (Lock, Logout, Suspend, Reboot, Shutdown) |
+| <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>Delete</kbd> | Exit Hyprland | `hyprctl dispatch exit 0` (Clean session logout) |
+| <kbd>Super</kbd> + <kbd>Alt</kbd> + <kbd>V</kbd> | Clipboard History | `ClipManager.sh` (Cliphist fuzzy search) |
 | <kbd>Super</kbd> + <kbd>W</kbd> | Wallpaper Selector | `WallpaperSelect.sh` |
-| <kbd>Super</kbd> + <kbd>V</kbd> (clipboard) | Clipboard History | `ClipManager.sh` (Cliphist fuzzy search) |
+| <kbd>Super</kbd> + <kbd>T</kbd> | Global Theme Switcher | `ThemeChanger.sh` (Wallust color sync) |
+| <kbd>Super</kbd> + <kbd>H</kbd> | Keybinding Hints | `KeyHints.sh` (Interactive keybind cheat sheet) |
 
 ### 📸 Screenshot Workflows
 | Shortcut | Action | Destination / Behavior |
 | :--- | :--- | :--- |
-| <kbd>Print</kbd> | Fullscreen Screenshot | Saved to `~/Pictures/Screenshots/` & copied to clipboard |
-| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd> | Area Snipping Tool | Interactive selection via `slurp` to clipboard |
-| <kbd>Super</kbd> + <kbd>Print</kbd> | Active Window Capture | Captures current window boundary to clipboard |
+| <kbd>Super</kbd> + <kbd>Print</kbd> | Fullscreen Screenshot | `ScreenShot.sh --now` (Saved to `~/Pictures/Screenshots/` & clipboard) |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>Print</kbd> | Area / Selection Screenshot | `ScreenShot.sh --area` (Interactive selection via `slurp` + `grim`) |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd> | Snipping & Annotation Tool | `ScreenShot.sh --swappy` (Area selection directly into `swappy` editor) |
+| <kbd>Alt</kbd> + <kbd>Print</kbd> | Active Window Capture | `ScreenShot.sh --active` (Captures currently active window boundary) |
+| <kbd>Super</kbd> + <kbd>Ctrl</kbd> + <kbd>Print</kbd> | Delayed Screenshot (5s) | `ScreenShot.sh --in5` (5-second countdown timer) |
 
-### 🔢 Workspace Navigation (Hardware Keycodes)
+### 🔢 Workspace Navigation (Hardware Keycodes: code:10..19)
 | Shortcut | Action | Target Workspace |
 | :--- | :--- | :--- |
-| <kbd>Super</kbd> + <kbd>1..0</kbd> | `workspace, 1..10` | Switch to Workspace 1 through 10 |
-| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>1..0</kbd> | `movetoworkspace, 1..10` | Move focused window to Workspace 1-10 |
-| <kbd>Super</kbd> + <kbd>[</kbd> / <kbd>]</kbd> | `workspace, -1 / +1` | Cycle previous / next workspace |
+| <kbd>Super</kbd> + <kbd>Tab</kbd> | `workspace, m+1` | Switch to next workspace |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>Tab</kbd> | `workspace, m-1` | Switch to previous workspace |
+| <kbd>Super</kbd> + <kbd>period</kbd> / <kbd>comma</kbd> | `workspace, e+1 / e-1` | Cycle next / previous workspace sequentially |
+| <kbd>Super</kbd> + <kbd>1..0</kbd> (`code:10..19`) | `workspace, 1..10` | Switch directly to Workspace 1 through 10 |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>1..0</kbd> (`code:10..19`) | `movetoworkspace, 1..10` | Move focused window to Workspace 1..10 and follow |
+| <kbd>Super</kbd> + <kbd>Ctrl</kbd> + <kbd>1..0</kbd> (`code:10..19`) | `movetoworkspacesilent, 1..10` | Move focused window silently to Workspace 1..10 |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>[</kbd> / <kbd>]</kbd> | `movetoworkspace, -1 / +1` | Move active window to relative previous / next workspace |
+| <kbd>Super</kbd> + <kbd>Ctrl</kbd> + <kbd>[</kbd> / <kbd>]</kbd> | `movetoworkspacesilent, -1 / +1` | Move window silently to relative previous / next workspace |
 | <kbd>Super</kbd> + <kbd>U</kbd> | `togglespecialworkspace` | Toggle scratchpad dropdown workspace |
-| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>U</kbd> | `movetoworkspace, special` | Send active window to scratchpad |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>U</kbd> | `movetoworkspace, special` | Send active window to scratchpad workspace |
+| <kbd>Super</kbd> + <kbd>Z</kbd> | `togglespecialworkspace, magic` | Toggle magic scratchpad workspace |
+
+### 🔊 Multimedia & Hardware Controls (Fn Keys)
+| Key Name | Dispatcher & Command | Action |
+| :--- | :--- | :--- |
+| <kbd>XF86AudioPlay</kbd> / <kbd>XF86AudioPause</kbd> | `exec, MediaCtrl.sh --pause` | Toggle Play / Pause active media |
+| <kbd>XF86AudioNext</kbd> | `exec, MediaCtrl.sh --nxt` | Skip to next audio track |
+| <kbd>XF86AudioPrev</kbd> | `exec, MediaCtrl.sh --prv` | Skip to previous audio track |
+| <kbd>XF86AudioStop</kbd> | `exec, MediaCtrl.sh --stop` | Stop audio playback |
+| <kbd>XF86AudioRaiseVolume</kbd> | `exec, Volume.sh --inc` | Raise volume (+5%) |
+| <kbd>XF86AudioLowerVolume</kbd> | `exec, Volume.sh --dec` | Lower volume (-5%) |
+| <kbd>XF86AudioMute</kbd> | `exec, Volume.sh --toggle` | Mute / unmute audio output |
+| <kbd>XF86AudioMicMute</kbd> | `exec, Volume.sh --toggle-mic` | Mute / unmute microphone input |
+| <kbd>XF86MonBrightnessUp</kbd> | `exec, Brightness.sh --inc` | Increase screen backlight brightness (+5%) |
+| <kbd>XF86MonBrightnessDown</kbd> | `exec, Brightness.sh --dec` | Decrease screen backlight brightness (-5%) |
+| <kbd>XF86KbdBrightnessUp</kbd> | `exec, BrightnessKbd.sh --inc` | Increase keyboard backlight brightness |
+| <kbd>XF86KbdBrightnessDown</kbd> | `exec, BrightnessKbd.sh --dec` | Decrease keyboard backlight brightness |
+| <kbd>XF86TouchpadToggle</kbd> | `exec, TouchPad.sh` | Toggle laptop touchpad on / off |
 
 ---
 
@@ -468,25 +658,29 @@ The default `$mainMod` is the **Super** key (Windows key).
 Your operating system and dotfiles safety is our first priority.
 
 ### Automated Snapshot Architecture
-Whenever `./install.sh` runs, `scripts/03-backup.sh` generates an isolated snapshot before touching your files:
+Whenever `./install.sh` or `./update.sh` runs, `scripts/03-backup.sh` generates an isolated, standardized snapshot before touching your files:
 ```text
-~/.config/yusei-hypr-backups/
-├── backup_20261012_001326/
+~/.config/
+├── yusei-hypr-backup-20261014_120000/
 │   ├── hypr/
 │   ├── waybar/
 │   ├── rofi/
 │   ├── kitty/
 │   ├── swaync/
 │   └── manifest.json
-└── latest -> backup_20261012_001326
+└── yusei-hypr-backup-latest -> yusei-hypr-backup-20261014_120000
 ```
 
 ### 1-Command Instant Rollback
 If you ever want to revert back to your exact pre-installation configuration:
 ```bash
+# Restore latest snapshot automatically:
 ./scripts/rollback.sh
+
+# Or restore an explicit snapshot directory:
+./scripts/rollback.sh ~/.config/yusei-hypr-backup-20261014_120000
 ```
-`rollback.sh` parses `manifest.json`, validates directory paths, safely restores all pre-existing configurations, and cleanly purges newly created components.
+`rollback.sh` parses `manifest.json`, validates directory paths, safely restores all pre-existing configurations, and cleanly purges newly created components. You can also use `./uninstall.sh` to choose snapshots via an interactive curses TUI menu.
 
 ---
 
@@ -558,6 +752,24 @@ If you ever want to revert back to your exact pre-installation configuration:
   ~/.config/hypr/scripts/Volume.sh --dec
   ```
 </details>
+
+---
+
+## 📜 License
+
+This project is licensed under the terms of the **GNU General Public License v3.0 (GPL-3.0)**.
+
+```
+                    GNU GENERAL PUBLIC LICENSE
+                       Version 3, 29 June 2007
+
+ Copyright (C) 2026 yusei-hypr contributors <https://github.com/Yusei1708/yusei-hypr>
+ Everyone is permitted to copy and distribute verbatim copies
+ of this license document, but changing it is not allowed.
+```
+
+You are free to run, study, modify, and redistribute this software under the terms and conditions of the GNU General Public License as published by the Free Software Foundation.
+For the complete legal text and terms, please consult the [LICENSE](LICENSE) file in the repository root.
 
 ---
 

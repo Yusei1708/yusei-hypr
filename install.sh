@@ -45,7 +45,7 @@ echo -e "  3. Cấu hình chuyên sâu tầng Kernel (Early KMS, Modprobe DRM, G
 echo -e "  4. Kích hoạt toàn bộ các dịch vụ hệ thống (Bluetooth, PipeWire, WirePlumber)."
 echo -e "  5. Cài đặt và cấu hình Display Manager SDDM kèm theme simple-sddm-2 chuẩn mực."
 echo -e "  6. Sao lưu bảo toàn các cấu hình cũ trong ~/.config."
-echo -e "  7. Triển khai giao diện bo góc & animations phong cách Material 3 (End-4)."
+echo -e "  7. Triển khai giao diện bo góc & animations Material 3 (Bảo toàn userprefs.conf & tùy biến cá nhân)."
 echo -e "  8. Kiểm định toàn diện sức khỏe hệ thống sau khi cài đặt (05-verify.sh)."
 echo -e "  9. Gợi ý cài đặt ứng dụng tùy chọn và công cụ quản trị hệ thống (05-optional-apps.sh)."
 echo ""
@@ -75,7 +75,7 @@ chmod +x "$DIR"/scripts/*.sh 2>/dev/null || true
 # ------------------------------------------------------------------------------
 
 # Bước 1: Nhận diện phần cứng & Kernel
-"$DIR/scripts/01-detect.sh"
+"$DIR/scripts/hardware-detect.sh" "$@"
 
 # Bước 2: Cài đặt phần mềm & Phụ thuộc
 "$DIR/scripts/02-packages.sh"
@@ -99,8 +99,13 @@ fi
 # Bước 6: Sao lưu cấu hình hiện tại
 "$DIR/scripts/03-backup.sh"
 
-# Bước 7: Cài đặt cấu hình End-4 Material 3 (Bảo vệ UserConfigs & UserScripts)
+# Bước 7: Cài đặt cấu hình End-4 Material 3 (Bảo vệ userprefs.conf, UserConfigs & UserScripts)
 "$DIR/scripts/04-install-configs.sh"
+
+# Bước 7.1: Thiết lập cờ biến môi trường Wayland NVIDIA vào userprefs.conf nếu phát hiện GPU NVIDIA
+if [ "$HAS_NVIDIA" = "true" ]; then
+    "$DIR/scripts/hardware-detect.sh" --inject-userprefs
+fi
 
 # Bước 8: Kiểm định hệ thống sau cài đặt
 "$DIR/scripts/05-verify.sh"

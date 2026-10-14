@@ -8,6 +8,7 @@ Serves the Windows 11 Fluent web interface and exposes the Discovery & Safety AP
 import json
 import mimetypes
 import os
+import subprocess
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
@@ -17,6 +18,7 @@ from yusei_settings.core.discovery import DiscoveryEngine
 from yusei_settings.core.state import StateManager
 from yusei_settings.core.safety import SafetyEngine
 from yusei_settings.core.preview import PreviewEngine
+from yusei_settings.core.keybinds import KeybindParser
 
 class SettingsRequestHandler(BaseHTTPRequestHandler):
     def __init__(self, *args, workspace_root: Optional[str] = None, target_home: Optional[str] = None, **kwargs):
@@ -25,6 +27,8 @@ class SettingsRequestHandler(BaseHTTPRequestHandler):
         self.discovery = DiscoveryEngine(self.workspace_root)
         self.state_mgr = StateManager(self.target_home)
         self.safety_engine = SafetyEngine(self.target_home)
+        keybinds_conf = Path(self.workspace_root) / "config" / "hypr" / "keybinds.conf"
+        self.keybind_parser = KeybindParser(str(keybinds_conf))
         super().__init__(*args, **kwargs)
 
     def log_message(self, format, *args):
@@ -40,15 +44,26 @@ class SettingsRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def serve_file(self, file_path: Path):
-        if not file_path.exists() or not file_path.is_file():
+        # Path containment check: ensure target_file cannot escape workspace_root
+        try:
+            resolved_root = Path(self.workspace_root).resolve()
+            resolved_file = file_path.resolve()
+            if not resolved_file.is_relative_to(resolved_root):
+                self.send_error(403, "Access denied: Path traversal detected")
+                return
+        except Exception:
+            self.send_error(403, "Access denied")
+            return
+
+        if not resolved_file.exists() or not resolved_file.is_file():
             self.send_error(404, "File not found")
             return
 
-        mime_type, _ = mimetypes.guess_type(str(file_path))
+        mime_type, _ = mimetypes.guess_type(str(resolved_file))
         if not mime_type:
             mime_type = "application/octet-stream"
 
-        content = file_path.read_bytes()
+        content = resolved_file.read_bytes()
         self.send_response(200)
         self.send_header("Content-Type", mime_type)
         self.send_header("Content-Length", str(len(content)))
@@ -66,13 +81,13 @@ class SettingsRequestHandler(BaseHTTPRequestHandler):
 
         # Static UI assets
         if path.startswith("/ui/web/"):
-            rel_path = path.replace("/ui/web/", "")
+            rel_path = path[len("/ui/web/"):].lstrip("/")
             target_file = Path(self.workspace_root) / "yusei_settings" / "ui" / "web" / rel_path
             return self.serve_file(target_file)
 
         # Assets (wallpapers/icons)
         if path.startswith("/assets/"):
-            rel_path = path.replace("/assets/", "")
+            rel_path = path[len("/assets/"):].lstrip("/")
             target_file = Path(self.workspace_root) / "assets" / rel_path
             return self.serve_file(target_file)
 
@@ -100,6 +115,96 @@ class SettingsRequestHandler(BaseHTTPRequestHandler):
         if path == "/api/snapshots":
             snapshots = self.safety_engine.list_snapshots()
             return self.send_json(snapshots)
+
+        # API: Keybinds Cheat Sheet
+        if path == "/api/keybinds":
+            items = self.keybind_parser.parse()
+            categories = self.keybind_parser.get_categories()
+            count = len(items)
+            return self.send_json({
+                "total": count,
+                "total_count": count,
+                "categories": categories,
+                "keybinds": items,
+            })
+
+        # API: System Status
+        if path == "/api/system/status":
+            branch = "main"
+            commit = ""
+            is_dirty = False
+            try:
+                b_proc = subprocess.run(
+                    ["git", "-C", self.workspace_root, "rev-parse", "--abbrev-ref", "HEAD"],
+                    capture_output=True, text=True, check=False
+                )
+                if b_proc.returncode == 0:
+                    branch = b_proc.stdout.strip()
+                c_proc = subprocess.run(
+                    ["git", "-C", self.workspace_root, "rev-parse", "HEAD"],
+                    capture_output=True, text=True, check=False
+                )
+                if c_proc.returncode == 0:
+                    commit = c_proc.stdout.strip()
+                s_proc = subprocess.run(
+                    ["git", "-C", self.workspace_root, "status", "--porcelain"],
+                    capture_output=True, text=True, check=False
+                )
+                if s_proc.returncode == 0 and s_proc.stdout.strip():
+                    is_dirty = True
+            except Exception:
+                pass
+
+            home_p = Path(self.target_home) if self.target_home else Path(os.environ.get("HOME", "/home/user"))
+            cfg_dir = home_p / ".config"
+
+            last_backup = "None"
+            backup_count = 0
+            if cfg_dir.exists():
+                backups = [p for p in cfg_dir.glob("yusei-hypr-backup-*") if p.is_dir()]
+                backup_count = len(backups)
+                latest_link = cfg_dir / "yusei-hypr-backup-latest"
+                if latest_link.exists() or latest_link.is_symlink():
+                    try:
+                        last_backup = str(latest_link.resolve().name)
+                    except Exception:
+                        pass
+                elif backups:
+                    backups.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+                    last_backup = str(backups[0].name)
+
+            userprefs_path = cfg_dir / "hypr" / "userprefs.conf"
+            userprefs_intact = userprefs_path.exists() or (Path(self.workspace_root) / "config" / "hypr" / "userprefs.conf").exists()
+
+            return self.send_json({
+                "git_branch": branch,
+                "git_commit": commit,
+                "git_hash": commit[:8] if commit else "",
+                "dirty": is_dirty,
+                "is_clean": not is_dirty,
+                "last_backup": last_backup,
+                "backup_count": backup_count,
+                "userprefs_intact": userprefs_intact,
+            })
+
+        # API: System Update Check
+        if path == "/api/system/update/check":
+            current_commit = ""
+            try:
+                c_proc = subprocess.run(
+                    ["git", "-C", self.workspace_root, "rev-parse", "HEAD"],
+                    capture_output=True, text=True, check=False
+                )
+                if c_proc.returncode == 0:
+                    current_commit = c_proc.stdout.strip()
+            except Exception:
+                pass
+
+            return self.send_json({
+                "update_available": False,
+                "current_commit": current_commit,
+                "message": "Hệ thống đang ở phiên bản mới nhất.",
+            })
 
         self.send_error(404, "Endpoint not found")
 
@@ -142,6 +247,75 @@ class SettingsRequestHandler(BaseHTTPRequestHandler):
                 return self.send_json(result)
             except Exception as e:
                 return self.send_json({"success": False, "message": str(e)}, status=400)
+
+        # API: System Backup Snapshot
+        if path == "/api/system/backup":
+            backup_script = Path(self.workspace_root) / "scripts" / "03-backup.sh"
+            env = os.environ.copy()
+            if self.target_home:
+                env["HOME"] = str(self.target_home)
+                env["XDG_CONFIG_HOME"] = str(Path(self.target_home) / ".config")
+
+            try:
+                proc = subprocess.run(
+                    [str(backup_script)],
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    check=False
+                )
+                home_p = Path(env.get("HOME", str(Path.home())))
+                latest_link = home_p / ".config" / "yusei-hypr-backup-latest"
+                backup_dir = ""
+                manifest = {}
+                if latest_link.exists() or latest_link.is_symlink():
+                    try:
+                        backup_dir = str(latest_link.resolve())
+                        manifest_file = Path(backup_dir) / "manifest.json"
+                        if manifest_file.exists():
+                            manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+                    except Exception:
+                        pass
+
+                return self.send_json({
+                    "success": proc.returncode == 0,
+                    "backup_dir": backup_dir,
+                    "manifest": manifest,
+                    "log": proc.stdout,
+                })
+            except Exception as e:
+                return self.send_json({"success": False, "message": str(e)}, status=500)
+
+        # API: System Update Apply
+        if path == "/api/system/update/apply":
+            update_script = Path(self.workspace_root) / "update.sh"
+            confirmed = bool(payload.get("confirmed", False))
+            dry_run = bool(payload.get("dry_run", not confirmed))
+
+            cmd = [str(update_script), "-y", "--skip-git", "--no-reload"]
+            if dry_run or not confirmed:
+                cmd.append("--dry-run")
+
+            env = os.environ.copy()
+            if self.target_home:
+                env["HOME"] = str(self.target_home)
+                env["XDG_CONFIG_HOME"] = str(Path(self.target_home) / ".config")
+
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    check=False
+                )
+                return self.send_json({
+                    "success": proc.returncode == 0,
+                    "dry_run": dry_run,
+                    "log": proc.stdout + proc.stderr,
+                })
+            except Exception as e:
+                return self.send_json({"success": False, "message": str(e)}, status=500)
 
         self.send_error(404, "Endpoint not found")
 
