@@ -34,7 +34,14 @@ mapfile -t JSON_FILES < <(find "$REPO_ROOT" -type f \( -name "*.json" -o -name "
 
 TOTAL_SH=${#SH_FILES[@]}
 TOTAL_JSON=${#JSON_FILES[@]}
-TOTAL_TESTS=$((TOTAL_SH + TOTAL_JSON))
+
+# Explicitly verified v1.5.0 Power Tools
+MANDATORY_V15_SCRIPTS=(
+    "config/hypr/scripts/ScreenRecord.sh"
+    "config/hypr/scripts/OcrGrab.sh"
+)
+TOTAL_V15=${#MANDATORY_V15_SCRIPTS[@]}
+TOTAL_TESTS=$((TOTAL_SH + TOTAL_JSON + TOTAL_V15))
 
 if [[ $TOTAL_TESTS -eq 0 ]]; then
     echo "1..0 # No scripts or JSON files found"
@@ -123,12 +130,35 @@ print(clean)
     fi
 done
 
+# 3. Explicit Verification of Critical v1.5.0 Power Tools (ScreenRecord.sh & OcrGrab.sh)
+for script_rel in "${MANDATORY_V15_SCRIPTS[@]}"; do
+    TEST_INDEX=$((TEST_INDEX + 1))
+    script_abs="$REPO_ROOT/$script_rel"
+    if [[ ! -f "$script_abs" ]]; then
+        echo "not ok ${TEST_INDEX} - explicit check: ${script_rel} exists # FAIL: file missing"
+        FAILED=$((FAILED + 1))
+        FAILED_LIST+=("${script_rel} (file missing)")
+    elif [[ ! -x "$script_abs" ]]; then
+        echo "not ok ${TEST_INDEX} - explicit check: ${script_rel} executable # FAIL: not executable"
+        FAILED=$((FAILED + 1))
+        FAILED_LIST+=("${script_rel} (not executable)")
+    elif bash -n "$script_abs" 2>"$TMP_DIR/err.log"; then
+        echo "ok ${TEST_INDEX} - explicit check: bash -n ${script_rel} (v1.5.0 power tool)"
+        PASSED=$((PASSED + 1))
+    else
+        err_msg="$(head -n 1 "$TMP_DIR/err.log" 2>/dev/null || echo "Syntax error")"
+        echo "not ok ${TEST_INDEX} - explicit check: bash -n ${script_rel} # FAIL: ${err_msg}"
+        FAILED=$((FAILED + 1))
+        FAILED_LIST+=("${script_rel} (${err_msg})")
+    fi
+done
+
 # Output Summary Table
 echo ""
 echo -e "${BOLD}======================================================${NC}"
 echo -e "${BOLD}Syntax & JSON Integrity Summary${NC}"
 echo -e "${BOLD}======================================================${NC}"
-echo -e "Total Files Checked: ${TOTAL_TESTS} (${TOTAL_SH} Shell scripts, ${TOTAL_JSON} JSON/JSONC configs)"
+echo -e "Total Files Checked: ${TOTAL_TESTS} (${TOTAL_SH} Shell scripts, ${TOTAL_JSON} JSON/JSONC configs, ${TOTAL_V15} Explicit v1.5.0 checks)"
 echo -e "Passed:              ${GREEN}${PASSED}${NC}"
 if [[ $FAILED -gt 0 ]]; then
     echo -e "Failed:              ${RED}${FAILED}${NC}"

@@ -31,6 +31,7 @@
 <br/>
 
 [🌟 Highlights](#-highlights) •
+[🚀 What's New in v1.5.0](#-whats-new-in-v150-release-highlights) •
 [🏛️ Architecture](#-system-architecture) •
 [🧩 Components](#-component-matrix) •
 [⚙️ Settings App](#-yusei-settings-control-center) •
@@ -111,6 +112,22 @@ By separating the visual presentation layer from the core operational layer, **y
 
 ---
 
+## 🚀 What's New in v1.5.0 (Release Highlights)
+
+The **v1.5.0** release delivers significant compositor upgrades, gaming latency optimizations, security polish, portable config parsing, and dedicated daily driver power tools:
+
+| Feature / Subsystem | Configuration & Implementation | Highlights & Capabilities |
+| :--- | :--- | :--- |
+| **Window Swallowing** | `misc:enable_swallow = true`<br/>`misc:swallow_regex = ^(kitty\|Alacritty)$` | Launching GUI applications directly from `kitty` or `Alacritty` automatically swallows the parent terminal window, seamlessly restoring it when the child process exits. |
+| **Gaming Low-Latency Tearing** | `general:allow_tearing = true`<br/>`windowrule = match:tag games, immediate on`<br/>Modernized `GameMode.sh` | Immediate tearing mode enabled for designated gaming window tags without compositor latency penalty; atomic batch execution in `GameMode.sh` dynamically toggles tearing, animations, and blur without syntax errors. |
+| **Hyprlock Security & Polish** | `general { grace = 5; hide_cursor = true }`<br/>`capslock_color = rgba(255, 180, 0, 0.8)`<br/>Laptop battery telemetry label | 5-second grace period (`--grace 5`) allows instantaneous unlock upon accidental lock triggers; auto-hides cursor; amber visual cue on active CapsLock; dynamic hardware battery telemetry on laptops (`/sys/class/power_supply/BAT*`). |
+| **Screen Recording Tool** | `config/hypr/scripts/ScreenRecord.sh`<br/>Keybinds: `$mainMod ALT, R` & `$mainMod SHIFT ALT, R` | Comprehensive screen recording supporting `--toggle`, `--region`, `--fullscreen`, `--audio`, and `--status` using `wf-recorder`/`wl-screenrec`, with interactive SwayNC notifications and automatic storage in `~/Videos/Recordings/`. |
+| **OCR Text Grabber** | `config/hypr/scripts/OcrGrab.sh`<br/>Keybind: `$mainMod SHIFT, O` | High-speed optical character recognition pipeline combining `grim` + `slurp` + `tesseract` + `wl-copy` with multi-language fallback (`eng+vie`), desktop notification preview, and audio feedback. |
+| **Dedicated Scratchpads** | `special:music` on `$mainMod SHIFT, M`<br/>`special:monitor` on `$mainMod SHIFT, B` | Instant dropdown scratchpad workspaces with automated launching (`on-created-empty`) for Spotify music and Btop system monitor. |
+| **Relative Config Sourcing** | `source = ./userprefs.conf`<br/>`source = ./colors.conf` | Replaces legacy `~/.config` absolute paths with relative imports, enabling 100% standalone headless verification (`Hyprland -c config/hypr/hyprland.conf --verify-config`) in CI and portable sandboxes. |
+
+---
+
 ## 🏛️ System Architecture
 
 The codebase enforces an 8-layer decoupled design pattern where each domain maintains zero direct cyclic dependencies:
@@ -166,7 +183,7 @@ yusei-hypr/
     │   ├── colors.conf         # Dynamically generated Hyprland color tokens ($primary $secondary)
     │   ├── hypridle.conf       # 4-stage idle power listener
     │   ├── hyprlock.conf       # Modern pill input lockscreen
-    │   ├── scripts/            # 64 verified operational utility scripts
+    │   ├── scripts/            # 66 verified operational utility scripts (including ScreenRecord.sh & OcrGrab.sh)
     │   ├── UserScripts/        # Custom user extension scripts
     │   ├── UserConfigs/        # JaKooLit modular user override configs
     │   └── wallpaper_effects/  # Shader & ImageMagick effect definitions
@@ -637,6 +654,12 @@ Quickly navigate the desktop using **Super + Tab** (cycle next workspace), **Sup
 | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>P</kbd> | `exec, Wlogout.sh` | Open Wlogout Power & Session exit menu | System & Session |
 | <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd> | `exec, power-optimizer.sh --toggle-hz` | Toggle display refresh rate (60Hz vs Max native rate) | Hardware & Power |
 | <kbd>Super</kbd> + <kbd>Alt</kbd> + <kbd>V</kbd> | `exec, ClipManager.sh` | Open Clipboard History Manager (Cliphist) | Features & Utilities |
+| <kbd>Super</kbd> + <kbd>Alt</kbd> + <kbd>R</kbd> | `exec, ScreenRecord.sh --toggle` | Toggle fullscreen screen recording | Power Tools |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>Alt</kbd> + <kbd>R</kbd> | `exec, ScreenRecord.sh --region` | Record interactive selected screen region | Power Tools |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd> | `exec, OcrGrab.sh` | Grab text from screen selection (OCR to clipboard) | Power Tools |
+| <kbd>Super</kbd> + <kbd>Ctrl</kbd> + <kbd>M</kbd> | `exec, RofiBeats.sh` | Open online music radio station selector | Media & Music |
+| <kbd>Super</kbd> + <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>R</kbd> | `exec, Refresh.sh` | Refresh Waybar, SwayNC, and desktop menus | System & Session |
+| <kbd>Super</kbd> + <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd> | `exec, ZshChangeTheme.sh` | Change Oh-My-Zsh terminal prompt theme | Features & Utilities |
 | <kbd>Super</kbd> + <kbd>Print</kbd> | `exec, ScreenShot.sh --now` | Capture fullscreen screenshot to file & clipboard | Screenshots |
 | <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>Print</kbd> | `exec, ScreenShot.sh --area` | Capture interactive selection area screenshot | Screenshots |
 | <kbd>Alt</kbd> + <kbd>Print</kbd> | `exec, ScreenShot.sh --active` | Capture active window screenshot to clipboard | Screenshots |
@@ -646,6 +669,8 @@ Quickly navigate the desktop using **Super + Tab** (cycle next workspace), **Sup
 | <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>1..0</kbd> (`code:10..19`) | `movetoworkspace, 1..10` | Move focused window to Workspace 1 through 10 | Workspaces |
 | <kbd>Super</kbd> + <kbd>U</kbd> | `togglespecialworkspace` | Toggle dropdown scratchpad workspace | Workspaces |
 | <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>U</kbd> | `movetoworkspace, special` | Move active window into scratchpad | Workspaces |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>M</kbd> | `togglespecialworkspace, music` | Toggle dedicated music scratchpad (`special:music`, Spotify) | Workspaces |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> | `togglespecialworkspace, monitor` | Toggle dedicated system monitor scratchpad (`special:monitor`, Btop) | Workspaces |
 | <kbd>XF86AudioRaiseVolume</kbd> | `exec, Volume.sh --inc` | Increase audio volume (+5%) | Multimedia Fn |
 | <kbd>XF86AudioLowerVolume</kbd> | `exec, Volume.sh --dec` | Decrease audio volume (-5%) | Multimedia Fn |
 | <kbd>XF86AudioMute</kbd> | `exec, Volume.sh --toggle` | Toggle mute / unmute audio output | Multimedia Fn |
@@ -696,6 +721,12 @@ Quickly navigate the desktop using **Super + Tab** (cycle next workspace), **Sup
 | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>P</kbd> | Power Exit Menu | `Wlogout.sh` (Lock, Logout, Suspend, Reboot, Shutdown) |
 | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>Delete</kbd> | Exit Hyprland | `hyprctl dispatch exit 0` (Clean session logout) |
 | <kbd>Super</kbd> + <kbd>Alt</kbd> + <kbd>V</kbd> | Clipboard History | `ClipManager.sh` (Cliphist fuzzy search) |
+| <kbd>Super</kbd> + <kbd>Alt</kbd> + <kbd>R</kbd> | Screen Recorder | `ScreenRecord.sh --toggle` (Toggle fullscreen screen recording) |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>Alt</kbd> + <kbd>R</kbd> | Region Recorder | `ScreenRecord.sh --region` (Record selected screen area) |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd> | OCR Text Grabber | `OcrGrab.sh` (Extract text from selection via Tesseract) |
+| <kbd>Super</kbd> + <kbd>Ctrl</kbd> + <kbd>M</kbd> | Online Music Radio | `RofiBeats.sh` (Online radio stream player) |
+| <kbd>Super</kbd> + <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>R</kbd> | Refresh Desktop | `Refresh.sh` (Restart Waybar, SwayNC & menus) |
+| <kbd>Super</kbd> + <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd> | Zsh Theme Switcher | `ZshChangeTheme.sh` (Select Oh-My-Zsh theme) |
 | <kbd>Super</kbd> + <kbd>W</kbd> | Wallpaper Selector | `WallpaperSelect.sh` |
 | <kbd>Super</kbd> + <kbd>T</kbd> | Global Theme Switcher | `ThemeChanger.sh` (Wallust color sync) |
 | <kbd>Super</kbd> + <kbd>H</kbd> | Keybinding Hints | `KeyHints.sh` (Interactive keybind cheat sheet) |
@@ -723,6 +754,8 @@ Quickly navigate the desktop using **Super + Tab** (cycle next workspace), **Sup
 | <kbd>Super</kbd> + <kbd>U</kbd> | `togglespecialworkspace` | Toggle scratchpad dropdown workspace |
 | <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>U</kbd> | `movetoworkspace, special` | Send active window to scratchpad workspace |
 | <kbd>Super</kbd> + <kbd>Z</kbd> | `togglespecialworkspace, magic` | Toggle magic scratchpad workspace |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>M</kbd> | `togglespecialworkspace, music` | Toggle music scratchpad (`special:music`, Spotify) |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> | `togglespecialworkspace, monitor` | Toggle system monitor scratchpad (`special:monitor`, Btop) |
 
 ### 🔊 Multimedia & Hardware Controls (Fn Keys)
 | Key Name | Dispatcher & Command | Action |
