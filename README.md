@@ -740,6 +740,14 @@ Quickly navigate the desktop using **Super + Tab** (cycle next workspace), **Sup
 | <kbd>Alt</kbd> + <kbd>Print</kbd> | Active Window Capture | `ScreenShot.sh --active` (Captures currently active window boundary) |
 | <kbd>Super</kbd> + <kbd>Ctrl</kbd> + <kbd>Print</kbd> | Delayed Screenshot (5s) | `ScreenShot.sh --in5` (5-second countdown timer) |
 
+### 🎥 Screen Recording & OCR Power Tools (v1.5.0)
+| Shortcut | Action | Destination / Behavior |
+| :--- | :--- | :--- |
+| <kbd>Super</kbd> + <kbd>Alt</kbd> + <kbd>R</kbd> | Toggle Fullscreen Recording | `ScreenRecord.sh --toggle` (Saved to `~/Videos/Recordings/` & SwayNC notification) |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>Alt</kbd> + <kbd>R</kbd> | Region Screen Recording | `ScreenRecord.sh --region` (Interactive region selection via `slurp`) |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd> | OCR Screen Text Grabber | `OcrGrab.sh` (Extracts text via Tesseract eng+vie directly to clipboard) |
+
+
 ### 🔢 Workspace Navigation (Hardware Keycodes: code:10..19)
 | Shortcut | Action | Target Workspace |
 | :--- | :--- | :--- |
