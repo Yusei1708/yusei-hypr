@@ -20,3 +20,8 @@ __pycache__/
 # OS artifacts
 .DS_Store
 Thumbs.db
+
+# Screen recording outputs & local media caches
+Recordings/
+/tmp/ocr_*.png
+
