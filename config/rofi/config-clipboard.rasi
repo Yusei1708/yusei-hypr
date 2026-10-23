@@ -1,5 +1,10 @@
-/* ---- 💫 https://github.com/JaKooLit 💫 ---- */
-/* Clipboard Config - Clipboard */
+/* ==============================================================================
+ * yusei-hypr: Rofi Clipboard Manager Theme Configuration
+ * Keybindings:
+ *   [Enter]         : Paste selected clipboard entry
+ *   [Ctrl + Delete] : Delete selected entry from cliphist
+ *   [Alt + Delete]  : Wipe entire clipboard history
+ * ============================================================================== */
 
 @import "~/.config/rofi/config.rasi"  
 
