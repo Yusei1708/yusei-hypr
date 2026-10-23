@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
-# /* ---- 💫 yusei-hypr v1.5.0 💫 ---- */
-# Screen recording script using wf-recorder or wl-screenrec
+# ==============================================================================
+# yusei-hypr: Screen Recording Subsystem (ScreenRecord.sh)
+# Version: 1.5.0 | Architecture: Universal Wayland
+# Backends: wf-recorder, wl-screenrec | Output: $HOME/Videos/Recordings/
+# Supported flags: --toggle, --region, --fullscreen, --audio, --status
+# ==============================================================================
 
 sDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 iDIR="$HOME/.config/swaync/icons"
