@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
-# /* ---- 💫 yusei-hypr v1.5.0 💫 ---- */
-# OCR Screen Text Grabber (grim + slurp + tesseract + wl-copy)
+# ==============================================================================
+# yusei-hypr: OCR Text Grabber Subsystem (OcrGrab.sh)
+# Version: 1.5.0 | Architecture: Universal Wayland
+# Pipeline: slurp (region) -> grim (capture) -> tesseract (OCR) -> wl-copy
+# Supported languages: eng (English), vie (Vietnamese)
+# ==============================================================================
 
 sDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 iDIR="$HOME/.config/swaync/icons"
