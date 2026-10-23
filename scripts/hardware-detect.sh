@@ -164,8 +164,12 @@ KERNEL_HEADERS_PKG="${KERNEL_PKG}-headers"
 # ------------------------------------------------------------------------------
 # 3. GPU Detection (NVIDIA / Integrated / AMD)
 # ------------------------------------------------------------------------------
+# Detects dedicated NVIDIA GPUs via lspci or sysfs PCI vendor ID (0x10de).
+# When detected, triggers dkms kernel driver recommendations and exports
+# optimal Wayland compositor environment variables (GBM_BACKEND, LIBVA).
 HAS_NVIDIA=false
 NVIDIA_MODEL=""
+
 SYSFS_PCI_DIR="${SYSFS_PCI_DIR:-/sys/bus/pci/devices}"
 LSPCI_OUTPUT="$(lspci 2>/dev/null | grep -iE 'vga|3d|display' || true)"
 if echo "$LSPCI_OUTPUT" | grep -iq "nvidia"; then
