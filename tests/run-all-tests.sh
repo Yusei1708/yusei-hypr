@@ -28,12 +28,16 @@ YELLOW='\033[1;33m'
 BOLD='\033[1m'
 NC='\033[0m'
 
+GIT_BRANCH="$(git -C "$REPO_ROOT" branch --show-current 2>/dev/null || echo "detached")"
+GIT_COMMIT="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")"
+
 echo -e "${CYAN}${BOLD}================================================================================${NC}"
 echo -e "${CYAN}${BOLD}               🧪  yusei-hypr: MASTER E2E TEST RUNNER                           ${NC}"
 echo -e "${CYAN}${BOLD}================================================================================${NC}"
-echo -e " Target Repository: ${REPO_ROOT}"
+echo -e " Target Repository: ${REPO_ROOT} (${GIT_BRANCH}@${GIT_COMMIT})"
 echo -e " Started At:        $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 echo ""
+
 
 SUITES=(
     "Syntax & JSON Linting|tests/test_syntax.sh"
