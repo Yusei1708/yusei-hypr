@@ -903,7 +903,19 @@ All 7 core test suites execute automatically via `./tests/run-all-tests.sh` with
 
 ---
 
+## 🔮 Upcoming Roadmap (v1.6.0 & Beyond)
+
+The following architectural initiatives are currently queued for future releases:
+
+- 🎮 **Dynamic VRR & HDR Hooks**: Automated Variable Refresh Rate triggers for full-screen games and experimental 10-bit color profile support.
+- ⚡ **Quickshell Interactive Overview**: Next-generation Material 3 widget dock and workspace overview daemon integration.
+- 🔋 **Extended Power Analytics**: Historical battery drain metrics and per-application power attribution within `yusei_settings`.
+- 🌐 **Cloud Profile Sync**: Optional encrypted backup and synchronization of `userprefs.conf` across multiple Arch machines.
+
+---
+
 ## 📜 License
+
 
 
 This project is licensed under the terms of the **GNU General Public License v3.0 (GPL-3.0)**.
