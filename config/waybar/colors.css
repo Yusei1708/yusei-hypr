@@ -1,0 +1,17 @@
+/* ==============================================================================
+ * yusei-hypr Dynamic Material You Colors for Waybar
+ * ============================================================================== */
+
+@define-color primary #a8c7fa;
+@define-color on_primary #042f65;
+@define-color primary_container #254b73;
+@define-color secondary #d3bbff;
+@define-color surface rgba(28, 27, 31, 0.72);
+@define-color surface_variant rgba(44, 43, 48, 0.85);
+@define-color surface_hover rgba(58, 57, 63, 0.95);
+@define-color text #e3e2e6;
+@define-color text_muted #8c9099;
+@define-color border rgba(255, 255, 255, 0.08);
+@define-color error #f2b8b5;
+@define-color warning #fce788;
+@define-color success #b4e09f;

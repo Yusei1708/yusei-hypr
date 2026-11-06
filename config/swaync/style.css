@@ -1,0 +1,119 @@
+/* ==============================================================================
+ * SwayNC Material 3 (End-4 Control Center Style)
+ * ============================================================================== */
+
+@import "colors.css";
+
+* {
+    font-family: "JetBrains Mono Nerd Font", "Rubik", sans-serif;
+    color: @text;
+}
+
+.control-center {
+    background: @surface;
+    border: 1px solid @border;
+    border-radius: 20px;
+    padding: 16px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+/* Widgets */
+.widget-title {
+    font-size: 16px;
+    font-weight: bold;
+    color: @primary;
+    margin-bottom: 12px;
+}
+
+.widget-title > button {
+    background: @surface_variant;
+    border: 1px solid @border;
+    border-radius: 12px;
+    padding: 4px 12px;
+    color: @text;
+}
+
+.widget-title > button:hover {
+    background: @error;
+    color: @on_error;
+}
+
+/* Do Not Disturb Toggle */
+.widget-dnd {
+    background: @surface_variant;
+    border-radius: 14px;
+    padding: 8px 14px;
+    margin-bottom: 10px;
+    border: 1px solid @border;
+}
+
+.widget-dnd > switch {
+    border-radius: 14px;
+    background: #44474f;
+}
+
+.widget-dnd > switch:checked {
+    background: @primary;
+}
+
+/* Media Player MPRIS */
+.widget-mpris {
+    background: @surface_variant;
+    border-radius: 16px;
+    padding: 12px;
+    margin-bottom: 12px;
+    border: 1px solid @border;
+}
+
+.widget-mpris-title {
+    font-weight: bold;
+    color: @primary;
+}
+
+.widget-mpris-subtitle {
+    color: @text_muted;
+}
+
+/* Sliders (Volume, Backlight) */
+.widget-volume, .widget-backlight {
+    background: @surface_variant;
+    border-radius: 14px;
+    padding: 8px 14px;
+    margin-bottom: 8px;
+    border: 1px solid @border;
+}
+
+scale trough {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    min-height: 8px;
+}
+
+scale highlight {
+    background: @primary;
+    border-radius: 10px;
+}
+
+/* Notifications List */
+.notification {
+    background: @surface_variant;
+    border-radius: 16px;
+    border: 1px solid @border;
+    margin: 8px 0;
+    padding: 12px;
+}
+
+.notification-content {
+    margin: 6px;
+}
+
+.summary {
+    font-weight: bold;
+    color: @primary;
+    font-size: 14px;
+}
+
+.body {
+    color: @text;
+    font-size: 12px;
+}

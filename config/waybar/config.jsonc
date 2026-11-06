@@ -1,0 +1,136 @@
+{
+    "layer": "top",
+    "position": "top",
+    "height": 40,
+    "margin-top": 8,
+    "margin-left": 14,
+    "margin-right": 14,
+    "spacing": 8,
+
+    // Module Layout
+    "modules-left": [
+        "custom/launcher",
+        "hyprland/workspaces",
+        "hyprland/window"
+    ],
+    "modules-center": [
+        "clock"
+    ],
+    "modules-right": [
+        "pulseaudio",
+        "backlight",
+        "battery",
+        "power-profiles-daemon",
+        "network",
+        "custom/notifications",
+        "custom/power"
+    ],
+
+    // Module Configurations
+    "custom/launcher": {
+        "format": "󰣇",
+        "on-click": "rofi -show drun",
+        "tooltip": false
+    },
+
+    "hyprland/workspaces": {
+        "disable-scroll": true,
+        "all-outputs": true,
+        "active-only": false,
+        "format": "{name}",
+        "on-click": "activate"
+    },
+
+    "hyprland/window": {
+        "format": "{}",
+        "max-length": 35,
+        "separate-outputs": true,
+        "rewrite": {
+            "": "Desktop"
+        }
+    },
+
+    "clock": {
+        "format": "󰥔  {:%H:%M  •  %d %b}",
+        "tooltip-format": "<tt><small>{calendar}</small></tt>",
+        "calendar": {
+            "mode": "month",
+            "weeks-pos": "right",
+            "format": {
+                "months": "<span color='#a8c7fa'><b>{}</b></span>",
+                "days": "<span color='#e3e2e6'><b>{}</b></span>",
+                "weeks": "<span color='#8c9099'><b>W{}</b></span>",
+                "weekdays": "<span color='#d3bbff'><b>{}</b></span>",
+                "today": "<span color='#f2b8b5'><b><u>{}</u></b></span>"
+            }
+        }
+    },
+
+    "pulseaudio": {
+        "format": "{icon}  {volume}%",
+        "format-muted": "󰝟 Muted",
+        "format-icons": {
+            "default": ["󰕿", "󰖀", "󰕾"]
+        },
+        "on-click": "pavucontrol",
+        "scroll-step": 5
+    },
+
+    "backlight": {
+        "format": "{icon}  {percent}%",
+        "format-icons": ["󰃞", "󰃟", "󰃠"],
+        "scroll-step": 5
+    },
+
+    "battery": {
+        "states": {
+            "good": 80,
+            "warning": 30,
+            "critical": 15
+        },
+        "format": "{icon}  {capacity}%",
+        "format-charging": "󰂄 {capacity}%",
+        "format-plugged": "󰚥 {capacity}%",
+        "format-icons": ["󰂎", "󰁺", "󰁻", "󰁼", "󰁽", "󰁾", "󰁿", "󰂀", "󰂁", "󰂂", "󰁹"],
+        "tooltip": true,
+        "tooltip-format": "Mức pin: {capacity}%\nThời gian còn lại: {timeTo}\nCông suất: {power}W\nTình trạng: {status}",
+        "tooltip-format-charging": "Mức pin: {capacity}%\nThời gian sạc đầy: {timeTo}\nCông suất: {power}W\nTình trạng: Đang sạc",
+        "tooltip-format-plugged": "Mức pin: {capacity}%\nCông suất: {power}W\nTình trạng: Đã cắm sạc",
+        "on-click": "$HOME/.config/hypr/scripts/power-optimizer.sh --toggle-hz",
+        "on-click-right": "$HOME/.config/hypr/scripts/power-optimizer.sh --menu"
+    },
+
+    "power-profiles-daemon": {
+        "format": "{icon}",
+        "tooltip-format": "Power Profile: {profile}\nDriver: {driver}\nLeft-click: Đổi profile\nRight-click: Cài đặt nguồn",
+        "tooltip": true,
+        "format-icons": {
+            "default": "",
+            "performance": "",
+            "balanced": "",
+            "power-saver": ""
+        },
+        "on-click-right": "$HOME/.config/hypr/scripts/power-optimizer.sh --menu"
+    },
+
+    "network": {
+        "format-wifi": "󰤨  {essid}",
+        "format-ethernet": "󰈀  {ipaddr}",
+        "format-linked": "󰈀  (No IP)",
+        "format-disconnected": "󰤭  Offline",
+        "tooltip-format": "{ifname} via {gwaddr}",
+        "on-click": "nm-connection-editor"
+    },
+
+    "custom/notifications": {
+        "format": "󰂚",
+        "tooltip": false,
+        "on-click": "swaync-client -t -sw"
+    },
+
+    "custom/power": {
+        "format": "⏻",
+        "tooltip": false,
+        "on-click": "wlogout || rofi -show power-menu"
+    }
+}

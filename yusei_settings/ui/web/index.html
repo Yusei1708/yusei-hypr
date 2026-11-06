@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cài Đặt Hệ Thống (yusei-settings)</title>
+  <link rel="stylesheet" href="/ui/web/style.css">
+</head>
+<body>
+  <div class="window-container">
+    <!-- =====================================================================
+         Left Navigation Sidebar (Windows 11 Settings Style)
+         ===================================================================== -->
+    <aside class="sidebar">
+      <div class="user-profile-header">
+        <div class="profile-avatar">Y</div>
+        <div class="profile-info">
+          <h3>Yusei Desktop</h3>
+          <p>Arch Linux • Hyprland</p>
+        </div>
+      </div>
+
+      <div class="search-box">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="global-search" placeholder="Tìm kiếm cài đặt...">
+      </div>
+
+      <nav class="nav-menu">
+        <div class="nav-item active" data-page="page-appearance">
+          <span class="nav-icon">🎨</span>
+          <span>Giao diện & Layout</span>
+        </div>
+        <div class="nav-item" data-page="page-hyprland">
+          <span class="nav-icon">⚡</span>
+          <span>Hyprland</span>
+        </div>
+        <div class="nav-item" data-page="page-power">
+          <span class="nav-icon">🔋</span>
+          <span>Nguồn điện & Pin</span>
+        </div>
+        <div class="nav-item" data-page="page-keybinds">
+          <span class="nav-icon">⌨️</span>
+          <span>Phím tắt</span>
+        </div>
+        <div class="nav-item" data-page="page-apps">
+          <span class="nav-icon">📱</span>
+          <span>Ứng dụng</span>
+        </div>
+        <div class="nav-item" data-page="page-devices">
+          <span class="nav-icon">⚙️</span>
+          <span>Thiết bị & Hệ thống</span>
+        </div>
+        <div class="nav-item" data-page="page-backup">
+          <span class="nav-icon">🛡️</span>
+          <span>Sao lưu & Khôi phục</span>
+        </div>
+        <div class="nav-item" data-page="page-maintenance">
+          <span class="nav-icon">🛠️</span>
+          <span>Bảo trì Hệ thống</span>
+        </div>
+      </nav>
+
+      <div class="system-status-footer">
+        <span>Bảo vệ cấu hình</span>
+        <span class="sandbox-badge">Safe Verified</span>
+      </div>
+    </aside>
+
+    <!-- =====================================================================
+         Right Main Content Canvas
+         ===================================================================== -->
+    <main class="main-canvas">
+      
+      <!-- PAGE 1: GIAO DIỆN & LAYOUT (GALLERY) -->
+      <section id="page-appearance" class="settings-page">
+        <div class="page-header">
+          <div class="page-title">
+            <h1>Giao diện & Layout</h1>
+            <p>Tùy biến thanh trạng thái, launcher, giao diện terminal và hình nền máy tính</p>
+          </div>
+        </div>
+
+        <!-- Subcategory Filter Tabs -->
+        <div class="subnav-pills" id="appearance-tabs">
+          <div class="pill-tab active" data-category="waybar_layouts">Waybar Layouts</div>
+          <div class="pill-tab" data-category="waybar_styles">Waybar Styles</div>
+          <div class="pill-tab" data-category="rofi_themes">Rofi Launchers</div>
+          <div class="pill-tab" data-category="kitty_themes">Kitty Themes</div>
+          <div class="pill-tab" data-category="hyprland_animations">Animations</div>
+          <div class="pill-tab" data-category="wallpapers">Hình nền 4K</div>
+        </div>
+
+        <!-- Card Gallery Grid -->
+        <div class="gallery-grid" id="gallery-container">
+          <!-- Dynamically populated via app.js -->
+        </div>
+      </section>
+
+      <!-- PAGE 2: HYPRLAND SETTINGS -->
+      <section id="page-hyprland" class="settings-page" style="display: none;">
+        <div class="page-header">
+          <div class="page-title">
+            <h1>Hyprland Compositor</h1>
+            <p>Quản lý hiệu ứng cửa sổ, bo góc, blur, và cấu hình hiển thị</p>
+          </div>
+        </div>
+
+        <div class="settings-section-card">
+          <div class="settings-section-header">
+            <h3>Hiệu Ứng & Bo Góc (Decorations)</h3>
+            <p>Các thông số giao diện End-4 Material 3</p>
+          </div>
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Bo góc cửa sổ (Corner Rounding)</h4>
+              <p>Mặc định 16px theo chuẩn Material 3</p>
+            </div>
+            <span class="card-badge active-badge">16px</span>
+          </div>
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Làm mờ nền (Dual-pass Kawase Blur)</h4>
+              <p>Bật hiệu ứng mờ cho Rofi, Waybar và SwayNC</p>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" checked disabled>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Bóng đổ cửa sổ (Drop Shadows)</h4>
+              <p>Màu bóng tối 25% với bán kính khuếch tán 14px</p>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" checked disabled>
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="settings-section-card">
+          <div class="settings-section-header">
+            <h3>Màn Hình & Đa Màn Hình (Monitors)</h3>
+            <p>Cấu hình phân giải và tự động nhận diện</p>
+          </div>
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Tự động nhận diện màn hình phụ</h4>
+              <p>Áp dụng quy tắc monitors.conf linh hoạt không khóa cứng ID</p>
+            </div>
+            <span class="card-badge active-badge">Auto (preferred, auto, 1)</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- PAGE: NGUỒN ĐIỆN & PIN (POWER & BATTERY) -->
+      <section id="page-power" class="settings-page" style="display: none;">
+        <div class="page-header">
+          <div class="page-title">
+            <h1>Nguồn điện & Pin (Power & Battery)</h1>
+            <p>Quản lý profile năng lượng, tối ưu pin laptop và tự động điều chỉnh tần số quét màn hình</p>
+          </div>
+          <button class="btn btn-secondary" id="btn-refresh-power">Làm mới trạng thái</button>
+        </div>
+
+        <!-- Card 1: Giám sát Pin và Công suất thời gian thực -->
+        <div class="settings-section-card">
+          <div class="settings-section-header">
+            <h3>Trạng Thái Nguồn Điện & Pin</h3>
+            <p>Theo dõi dung lượng, công suất xả/sạc theo thời gian thực và thời gian sử dụng ước tính</p>
+          </div>
+
+          <div class="battery-gauge-container">
+            <div class="battery-gauge-track">
+              <div class="battery-gauge-fill" id="power-battery-fill" style="width: 100%;"></div>
+            </div>
+            <div class="battery-gauge-percent" id="power-battery-percent">100%</div>
+          </div>
+
+          <div class="maintenance-status-grid">
+            <div class="status-metric">
+              <span class="metric-label">Nguồn điện</span>
+              <span class="metric-val" id="power-source-val">--</span>
+            </div>
+            <div class="status-metric">
+              <span class="metric-label">Tình trạng pin</span>
+              <span class="metric-val" id="power-status-val">--</span>
+            </div>
+            <div class="status-metric">
+              <span class="metric-label">Công suất tiêu thụ / sạc</span>
+              <span class="metric-val" id="power-watts-val">-- W</span>
+            </div>
+            <div class="status-metric">
+              <span class="metric-label">Thời gian sử dụng ước tính</span>
+              <span class="metric-val" id="power-time-val">--</span>
+            </div>
+            <div class="status-metric">
+              <span class="metric-label">Màn hình & Tần số quét</span>
+              <span class="metric-val" id="power-hz-val">-- Hz</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 2: Chuyển đổi nhanh 3 Profile Năng lượng -->
+        <div class="settings-section-card">
+          <div class="settings-section-header">
+            <h3>Profile Năng Lượng (Energy Profiles)</h3>
+            <p>Chuyển đổi tức thời giữa các cấu hình điều phối xung nhịp CPU và tần số quét màn hình</p>
+          </div>
+
+          <div class="power-profiles-grid">
+            <div class="power-profile-card eco" id="card-profile-eco">
+              <div class="power-profile-icon"></div>
+              <div class="power-profile-title">Tiết Kiệm Pin (Eco)</div>
+              <div class="power-profile-desc">Hạ xung nhịp CPU, giảm tiêu thụ điện năng tối đa và tự động khóa màn hình ở 60Hz khi dùng pin.</div>
+              <span class="power-profile-badge">Power-saver • 60Hz</span>
+            </div>
+
+            <div class="power-profile-card balanced" id="card-profile-balanced">
+              <div class="power-profile-icon"></div>
+              <div class="power-profile-title">Cân Bằng (Balanced)</div>
+              <div class="power-profile-desc">Tự động cân bằng giữa hiệu năng mượt mà và thời lượng pin. Khôi phục tần số quét cao khi cắm sạc.</div>
+              <span class="power-profile-badge">Mặc định • Dynamic Hz</span>
+            </div>
+
+            <div class="power-profile-card turbo" id="card-profile-turbo">
+              <div class="power-profile-icon"></div>
+              <div class="power-profile-title">Hiệu Năng Cao (Turbo)</div>
+              <div class="power-profile-desc">Mở khóa toàn bộ xung nhịp CPU và duy trì tần số quét màn hình cao nhất (120/144/165Hz).</div>
+              <span class="power-profile-badge">Performance • Max Hz</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 3: Tự động điều chỉnh tần số quét màn hình -->
+        <div class="settings-section-card">
+          <div class="settings-section-header">
+            <h3>Tự Động Điều Chỉnh Tần Số Quét (Dynamic Refresh Rate)</h3>
+            <p>Tối ưu hóa thời lượng pin thông minh dựa trên trạng thái nguồn điện cắm sạc</p>
+          </div>
+
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Tự động hạ màn hình xuống 60Hz khi rút sạc</h4>
+              <p>Khi ngắt sạc AC, hệ thống tự động hạ tần số quét xuống 60Hz. Khi cắm sạc trở lại, hệ thống tự động khôi phục tần số quét gốc cao nhất (120/144/165Hz).</p>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="toggle-auto-60hz" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Chuyển đổi tần số quét thủ công</h4>
+              <p>Chuyển đổi qua lại ngay lập tức giữa 60Hz và tần số quét tối đa của màn hình</p>
+            </div>
+            <button class="btn btn-secondary" id="btn-manual-toggle-hz">Chuyển đổi Hz ngay</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- PAGE 3: ỨNG DỤNG MẶC ĐỊNH -->
+      <section id="page-apps" class="settings-page" style="display: none;">
+        <div class="page-header">
+          <div class="page-title">
+            <h1>Ứng dụng Mặc định</h1>
+            <p>Quản lý các công cụ dòng lệnh, trình quản lý file và trình duyệt</p>
+          </div>
+        </div>
+
+        <div class="settings-section-card">
+          <div class="settings-section-header">
+            <h3>Ứng Dụng Cốt Lõi Hệ Thống</h3>
+          </div>
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Terminal ($term)</h4>
+              <p>Terminal giả lập mặc định khi nhấn Super + Enter</p>
+            </div>
+            <span class="card-badge active-badge">Kitty</span>
+          </div>
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Trình quản lý tệp ($files)</h4>
+              <p>Khởi chạy khi nhấn Super + E</p>
+            </div>
+            <span class="card-badge active-badge">Thunar</span>
+          </div>
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Trình duyệt Web ($browser)</h4>
+              <p>Khởi chạy khi nhấn Super + B</p>
+            </div>
+            <span class="card-badge active-badge">Default XDG Browser</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- PAGE 4: THIẾT BỊ & HỆ THỐNG -->
+      <section id="page-devices" class="settings-page" style="display: none;">
+        <div class="page-header">
+          <div class="page-title">
+            <h1>Thiết bị & Hệ thống</h1>
+            <p>Bàn rê chuột, quản lý nguồn và bảo vệ mắt</p>
+          </div>
+        </div>
+
+        <div class="settings-section-card">
+          <div class="settings-section-header">
+            <h3>Bàn Rê Chuột (Touchpad)</h3>
+          </div>
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Chạm để bấm (Tap-to-click)</h4>
+              <p>Kích hoạt chạm nhẹ bề mặt để click chuột trái</p>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" checked disabled>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Cuộn tự nhiên (Natural Scrolling)</h4>
+              <p>Hướng cuộn tương tự màn hình cảm ứng điện thoại</p>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" checked disabled>
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="settings-section-card">
+          <div class="settings-section-header">
+            <h3>Ánh Sáng Đêm & Tiết Kiệm Nguồn</h3>
+          </div>
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Lọc ánh sáng xanh (Night Light)</h4>
+              <p>Chuyển đổi nhiệt độ màu màn hình qua Hyprsunset (Super + N)</p>
+            </div>
+            <button class="btn btn-secondary" onclick="alert('Đã sẵn sàng qua phím Super + N')">Kiểm tra (Super + N)</button>
+          </div>
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Tự động khóa & Tắt màn hình khi nhàn rỗi (Hypridle)</h4>
+              <p>4 giai đoạn: Giảm sáng 150s &rarr; Khóa 300s &rarr; Tắt màn hình 330s &rarr; Suspend 1800s</p>
+            </div>
+            <span class="card-badge active-badge">Hypridle Active</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- PAGE 5: SAO LƯU & KHÔI PHỤC -->
+      <section id="page-backup" class="settings-page" style="display: none;">
+        <div class="page-header">
+          <div class="page-title">
+            <h1>Sao lưu & Khôi phục</h1>
+            <p>Lịch sử snapshot an toàn, hoàn tác 1 chạm và bảo vệ dữ liệu</p>
+          </div>
+          <button class="btn btn-primary" id="btn-create-manual-backup">Tạo bản sao lưu mới</button>
+        </div>
+
+        <div class="settings-section-card">
+          <div class="settings-section-header">
+            <h3>Lịch Sử Snapshots Gần Đây</h3>
+            <p>Mỗi lần áp dụng theme/layout đều được tạo một snapshot riêng kèm manifest.json</p>
+          </div>
+          <div id="snapshots-list-container">
+            <p style="color: var(--text-muted); font-size: 13px;">Đang tải danh sách snapshot...</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- PAGE: PHÍM TẮT (KEYBINDS CHEAT SHEET) -->
+      <section id="page-keybinds" class="settings-page" style="display: none;">
+        <div class="page-header">
+          <div class="page-title">
+            <h1>Tra Cứu Phím Tắt (Keybinds)</h1>
+            <p>Tra cứu hơn 150 tổ hợp phím tắt Hyprland, phân loại theo tính năng và điều hướng</p>
+          </div>
+        </div>
+
+        <div class="keybinds-search-bar">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="keybinds-search" placeholder="Tìm theo tên phím, mô tả hoặc lệnh (vd: terminal, Super + Tab, workspace)...">
+          <span id="keybinds-count-badge" class="count-badge">0 phím tắt</span>
+        </div>
+
+        <div class="subnav-pills keybinds-pills" id="keybinds-category-pills">
+          <div class="pill-tab active" data-cat="all">Tất cả</div>
+        </div>
+
+        <div class="keybinds-grid" id="keybinds-container">
+          <p style="color: var(--text-muted); font-size: 13px;">Đang tải danh sách phím tắt...</p>
+        </div>
+      </section>
+
+      <!-- PAGE: BẢO TRÌ HỆ THỐNG -->
+      <section id="page-maintenance" class="settings-page" style="display: none;">
+        <div class="page-header">
+          <div class="page-title">
+            <h1>Bảo Trì Hệ Thống</h1>
+            <p>Kiểm tra cập nhật yusei-hypr, tạo bản snapshot cấu hình nhanh và theo dõi trạng thái</p>
+          </div>
+        </div>
+
+        <div class="settings-section-card">
+          <div class="settings-section-header">
+            <h3>Cập Nhật Cấu Hình (yusei-hypr update)</h3>
+            <p>Đồng bộ cấu hình từ kho lưu trữ nhưng bảo tồn 100% tệp cá nhân userprefs.conf</p>
+          </div>
+          <div class="maintenance-status-grid">
+            <div class="status-metric">
+              <span class="metric-label">Nhánh Git</span>
+              <span class="metric-val" id="maint-git-branch">main</span>
+            </div>
+            <div class="status-metric">
+              <span class="metric-label">Commit HEAD</span>
+              <span class="metric-val" id="maint-git-commit">--</span>
+            </div>
+            <div class="status-metric">
+              <span class="metric-label">Trạng thái kho</span>
+              <span class="metric-val" id="maint-config-status">Sạch</span>
+            </div>
+            <div class="status-metric">
+              <span class="metric-label">Bản sao lưu gần nhất</span>
+              <span class="metric-val" id="maint-last-backup">--</span>
+            </div>
+          </div>
+          <div class="maintenance-actions" style="margin-top: 14px; display: flex; gap: 10px;">
+            <button class="btn btn-secondary" id="btn-check-update">Kiểm tra bản cập nhật</button>
+            <button class="btn btn-primary" id="btn-apply-update">Chạy cập nhật (Dry-run)</button>
+          </div>
+        </div>
+
+        <div class="settings-section-card">
+          <div class="settings-section-header">
+            <h3>Bảo Vệ & Sao Lưu Nhanh (Snapshot Backup)</h3>
+            <p>Tạo bản sao lưu toàn bộ cấu hình ~/.config vào thư mục yusei-hypr-backup-&lt;timestamp&gt;</p>
+          </div>
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Tạo bản snapshot tức thì</h4>
+              <p>Đóng gói hypr, waybar, rofi, kitty, swaync kèm manifest.json và cập nhật symlink latest</p>
+            </div>
+            <button class="btn btn-primary" id="btn-instant-backup">Tạo Snapshot Ngay</button>
+          </div>
+        </div>
+
+        <div class="settings-section-card">
+          <div class="settings-section-header">
+            <h3>Nhật Ký Hoạt Động (Activity Console)</h3>
+            <p>Đầu ra tiến trình cập nhật và sao lưu hệ thống</p>
+          </div>
+          <pre class="maintenance-console" id="maintenance-console">Sẵn sàng thực thi tác vụ bảo trì...</pre>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- =======================================================================
+       5-Stage Modal Safety Dialog
+       ======================================================================= -->
+  <div class="modal-overlay" id="confirm-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-icon-shield">🛡️</div>
+        <div>
+          <h3>Xác Nhận Thay Đổi Cấu Hình</h3>
+          <p style="font-size: 12px; color: var(--text-muted);">Quy trình kiểm tra an toàn 5 bước</p>
+        </div>
+      </div>
+
+      <div class="modal-content-box">
+        <div>
+          <strong style="color: var(--text-main);">Lựa chọn:</strong>
+          <span id="modal-item-name" style="color: var(--accent); font-weight: 600;">[Item Name]</span>
+        </div>
+        
+        <div>
+          <strong>Các file cấu hình sẽ bị thay đổi:</strong>
+          <ul class="affected-files-list" id="modal-affected-files">
+            <!-- Populated via app.js -->
+          </ul>
+        </div>
+
+        <div class="safety-note">
+          <span>✓</span>
+          <span>Một bản snapshot sao lưu sẽ tự động được tạo trước khi áp dụng.</span>
+        </div>
+        <div class="safety-note" style="color: #60cdff;">
+          <span>✓</span>
+          <span>Tất cả các cấu hình khác hoàn toàn được giữ nguyên không đổi.</span>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="modal-btn-cancel">Hủy bỏ</button>
+        <button class="btn btn-primary" id="modal-btn-confirm">Xác Nhận Áp Dụng</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div class="toast" id="toast-notify">
+    <span id="toast-message">Đã áp dụng thành công!</span>
+    <button class="btn btn-secondary" id="toast-btn-undo" style="padding: 4px 10px; font-size: 11px;">Hoàn tác ngay</button>
+  </div>
+
+  <script src="/ui/web/app.js"></script>
+</body>
+</html>

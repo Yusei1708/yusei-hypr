@@ -1,0 +1,86 @@
+/* ==============================================================================
+ * Rofi Material 3 (End-4 Card Style)
+ * ============================================================================== */
+
+@import "colors.rasi"
+
+configuration {
+    modi: "drun,run,filebrowser";
+    show-icons: true;
+    display-drun: "";
+    drun-display-format: "{name}";
+    font: "JetBrains Mono Nerd Font 12";
+}
+
+* {
+    background-color: transparent;
+    text-color: @fg-col;
+}
+
+window {
+    location: center;
+    anchor: center;
+    width: 620px;
+    height: 480px;
+    border: 1px solid;
+    border-color: @border-col;
+    border-radius: 16px;
+    background-color: @bg-col;
+    padding: 20px;
+}
+
+mainbox {
+    spacing: 16px;
+    children: [ inputbar, listview ];
+}
+
+inputbar {
+    background-color: @bg-card;
+    border-radius: 24px;
+    padding: 10px 18px;
+    spacing: 12px;
+    children: [ prompt, entry ];
+    border: 1px solid;
+    border-color: rgba(255, 255, 255, 0.08);
+}
+
+prompt {
+    text-color: @selected-col;
+    font: "JetBrains Mono Nerd Font 14";
+}
+
+entry {
+    placeholder: "Search applications...";
+    placeholder-color: @fg-muted;
+    text-color: @fg-col;
+}
+
+listview {
+    columns: 2;
+    lines: 6;
+    cycle: true;
+    scrollbar: false;
+    spacing: 8px;
+}
+
+element {
+    padding: 10px 14px;
+    border-radius: 14px;
+    spacing: 12px;
+    orientation: horizontal;
+}
+
+element-icon {
+    size: 28px;
+    horizontal-align: 0.5;
+}
+
+element-text {
+    vertical-align: 0.5;
+    text-color: inherit;
+}
+
+element selected {
+    background-color: @selected-col;
+    text-color: @selected-fg;
+}
