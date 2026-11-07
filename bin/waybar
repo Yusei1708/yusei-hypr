@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# yusei-hypr: Waybar Hyprland 0.57+ Compatibility Wrapper
+# ==============================================================================
+# Injects libwaybar-hyprland.so to bridge Waybar workspace click and scroll events
+# with Hyprland 0.57+ Lua IPC protocol.
+# ==============================================================================
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd || true)"
+
+COMPAT_LIB=""
+for p in "$HOME/.local/lib/libwaybar-hyprland.so" "$REPO_DIR/lib/libwaybar-hyprland.so" "/usr/local/lib/libwaybar-hyprland.so"; do
+    if [[ -f "$p" ]]; then
+        COMPAT_LIB="$p"
+        break
+    fi
+done
+
+if [[ -n "$COMPAT_LIB" ]]; then
+    export LD_PRELOAD="${LD_PRELOAD:+$LD_PRELOAD:}$COMPAT_LIB"
+fi
+
+exec /usr/bin/waybar "$@"
