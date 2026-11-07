@@ -36,11 +36,11 @@ hyprctl reload >/dev/null 2>&1 || true
 
 # Restart waybar
 sleep 0.1
-waybar >/dev/null 2>&1 &
+nohup waybar >/dev/null 2>&1 &
 
 # Restart swaync
 sleep 0.2
-swaync >/dev/null 2>&1 &
+nohup swaync >/dev/null 2>&1 &
 swaync-client --reload-config 2>/dev/null || true
 
 # Relaunch rainbow borders if enabled
