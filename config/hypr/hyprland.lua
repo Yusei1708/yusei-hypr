@@ -305,7 +305,6 @@ hl.config({
 
     dwindle = {
         preserve_split       = true,
-        special_scale_factor = 0.8,
     },
 
     master = {
@@ -317,6 +316,7 @@ hl.config({
     misc = {
         disable_hyprland_logo      = true,
         disable_splash_rendering   = true,
+        disable_watchdog_warning   = true,
         force_default_wallpaper    = 0,
         vrr                        = 0,
         mouse_move_enables_dpms    = true,
