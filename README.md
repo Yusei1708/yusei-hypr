@@ -106,6 +106,14 @@ By separating the visual presentation layer from the core operational layer, **y
 - 🧰 **Interactive Post-Install App Store (`scripts/05-optional-apps.sh`)**:
   - Interactive TUI checklist (Whiptail/Dialog with pure-Bash fallback) to easily select and install popular apps: Google Chrome, Brave, Mission Center, GParted, Timeshift, UFW, SDDM with Sugar Candy theme, Git, VS Code, Btop.
   - Automatically identifies pre-existing software, supports `--dry-run` safe simulations, and triggers system service setups (SDDM login theme & UFW firewall).
+- 🔔 **Single-Slot 3-Second Notification Engine (`bin/notify-send`)**:
+  - Replaces default multi-popup stacking with a clean, single-slot FIFO mechanism (`bin/notify-send` & `config/hypr/scripts/SwayncSinglePopup.sh`).
+  - Active popups auto-dismiss in exactly 3 seconds; any incoming notification immediately closes and replaces the previous popup to prevent screen clutter.
+  - Concise English messages matching JaKooLit with quiet layout toggling on reload.
+- 🎛️ **Kool Quick Settings Hub (`Super + Shift + E`)**:
+  - Full-featured Rofi control center allowing instant desktop adjustments: Animations, Kawase Blur, Dark/Light modes, Game Mode, Layout Switcher, Kitty Themes, Rainbow Borders, Rofi Themes, Touchpad toggle, and Wallpaper selector.
+- ⚡ **Hyprland 0.57+ Lua Configuration Architecture**:
+  - Native Lua config engine support (`hyprland.lua`) with bi-directional dynamic bridges for runtime window control, layout initialization, and decoration toggles.
 - 🔒 **Enterprise-Grade Backup & Rollback Protocol**:
   - Automated timestamped snapshots with `manifest.json` before any configuration file is modified.
   - 1-command idempotent `scripts/rollback.sh` restores your exact pre-installation state in seconds.
@@ -118,6 +126,9 @@ The **v1.5.0** release delivers significant compositor upgrades, gaming latency 
 
 | Feature / Subsystem | Configuration & Implementation | Highlights & Capabilities |
 | :--- | :--- | :--- |
+| **Hyprland 0.57+ Lua Engine** | `config/hypr/hyprland.lua`<br/>Dynamic C-IPC Bridges | Native Lua configuration architecture with bi-directional bridges for runtime window control, layout initialization, and decoration toggles. |
+| **Single-Slot 3s Notifications** | `bin/notify-send`<br/>`config/hypr/scripts/SwayncSinglePopup.sh`<br/>`config/swaync/config.json` | 3-second auto-dismissal; single-slot FIFO popup mechanism (new notification immediately closes and replaces previous active popup without screen stacking); concise English messages. |
+| **Kool Quick Settings Hub** | `config/hypr/scripts/Kool_Quick_Settings.sh`<br/>Keybind: `$mainMod SHIFT, E` | Interactive Rofi control hub for Animations, Blur, Dark/Light, Game Mode, Layout Switcher, Kitty Themes, Rainbow Borders, Rofi Theme Selector, Touchpad, and Wallpapers. |
 | **Window Swallowing** | `misc:enable_swallow = true`<br/>`misc:swallow_regex = ^(kitty\|Alacritty)$` | Launching GUI applications directly from `kitty` or `Alacritty` automatically swallows the parent terminal window, seamlessly restoring it when the child process exits. |
 | **Gaming Low-Latency Tearing** | `general:allow_tearing = true`<br/>`windowrule = match:tag games, immediate on`<br/>Modernized `GameMode.sh` | Immediate tearing mode enabled for designated gaming window tags without compositor latency penalty; atomic batch execution in `GameMode.sh` dynamically toggles tearing, animations, and blur without syntax errors. |
 | **Hyprlock Security & Polish** | `general { grace = 5; hide_cursor = true }`<br/>`capslock_color = rgba(255, 180, 0, 0.8)`<br/>Laptop battery telemetry label | 5-second grace period (`--grace 5`) allows instantaneous unlock upon accidental lock triggers; auto-hides cursor; amber visual cue on active CapsLock; dynamic hardware battery telemetry on laptops (`/sys/class/power_supply/BAT*`). |
@@ -144,6 +155,8 @@ yusei-hypr/
 │   └── wallpapers/             # Bundled 4K high-resolution wallpapers
 ├── bin/
 │   ├── yusei-settings          # Control Center CLI/GUI/Web launcher
+│   ├── notify-send             # Single-slot 3s notification wrapper replacing active popups
+│   ├── power-optimizer         # Core power & display refresh rate optimizer CLI
 │   └── theme-engine.sh         # Dynamic Material You color extraction CLI wrapper
 ├── yusei_settings/             # Zero-dependency Control Center (Python standard library)
 │   ├── core/                   # Discovery, 5-stage Safety, Keybind Parser, State engines
@@ -170,6 +183,7 @@ yusei-hypr/
 │   └── run-all-tests.sh             # Master test runner (all 7 suites)
 └── config/
     ├── hypr/                   # Compositor Layer (Hyprland Core)
+    │   ├── hyprland.lua        # Hyprland 0.57+ Lua configuration and dynamic bridges
     │   ├── hyprland.conf       # 8-layer modular configuration loader (sources userprefs.conf)
     │   ├── userprefs.conf      # Layer 8: Isolated user customization (Monitors, env, autostart, custom binds)
     │   ├── keybinds.conf       # 159 annotated shortcuts with hardware keycodes & bindd
@@ -183,7 +197,7 @@ yusei-hypr/
     │   ├── colors.conf         # Dynamically generated Hyprland color tokens ($primary $secondary)
     │   ├── hypridle.conf       # 4-stage idle power listener
     │   ├── hyprlock.conf       # Modern pill input lockscreen
-    │   ├── scripts/            # 66 verified operational utility scripts (including ScreenRecord.sh & OcrGrab.sh)
+    │   ├── scripts/            # 68 verified operational utility scripts (including ScreenRecord.sh, OcrGrab.sh, SwayncSinglePopup.sh & Kool_Quick_Settings.sh)
     │   ├── UserScripts/        # Custom user extension scripts
     │   ├── UserConfigs/        # JaKooLit modular user override configs
     │   └── wallpaper_effects/  # Shader & ImageMagick effect definitions
@@ -653,6 +667,7 @@ Quickly navigate the desktop using **Super + Tab** (cycle next workspace), **Sup
 | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>L</kbd> | `exec, LockScreen.sh` | Lock screen with Hyprlock | System & Session |
 | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>P</kbd> | `exec, Wlogout.sh` | Open Wlogout Power & Session exit menu | System & Session |
 | <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd> | `exec, power-optimizer.sh --toggle-hz` | Toggle display refresh rate (60Hz vs Max native rate) | Hardware & Power |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>E</kbd> | `exec, Kool_Quick_Settings.sh` | Open Kool Quick Settings menu | Features & Utilities |
 | <kbd>Super</kbd> + <kbd>Alt</kbd> + <kbd>V</kbd> | `exec, ClipManager.sh` | Open Clipboard History Manager (Cliphist) | Features & Utilities |
 | <kbd>Super</kbd> + <kbd>Alt</kbd> + <kbd>R</kbd> | `exec, ScreenRecord.sh --toggle` | Toggle fullscreen screen recording | Power Tools |
 | <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>Alt</kbd> + <kbd>R</kbd> | `exec, ScreenRecord.sh --region` | Record interactive selected screen region | Power Tools |
@@ -714,6 +729,7 @@ Quickly navigate the desktop using **Super + Tab** (cycle next workspace), **Sup
 | <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>Return</kbd> | Dropdown Scratchpad Terminal | `Dropterminal.sh` (Kitty dropdown) |
 | <kbd>Super</kbd> + <kbd>B</kbd> | Default Web Browser | `xdg-open "https://"` |
 | <kbd>Super</kbd> + <kbd>E</kbd> | File Manager | `Thunar` (or system default file manager) |
+| <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>E</kbd> | Quick Settings Hub | `Kool_Quick_Settings.sh` (Animations, Blur, Themes, Borders, GameMode, Layout) |
 | <kbd>Super</kbd> + <kbd>A</kbd> | Desktop Overview | `OverviewToggle.sh` |
 | <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>N</kbd> | Control Center | `SwayNC` (Quick Toggles, DND, Volume, Brightness) |
 | <kbd>Super</kbd> + <kbd>N</kbd> (Night Light) | Night Light | `Hyprsunset.sh toggle` (Color temperature toggle) |
@@ -892,12 +908,12 @@ All 7 core test suites execute automatically via `./tests/run-all-tests.sh` with
 
 | Test Suite | Coverage & Scope | Status |
 | :--- | :--- | :--- |
-| **Syntax & JSON Linting** | 116 shell scripts, JSON configs, Rofi RASI themes | `116/116 PASS` |
+| **Syntax & JSON Linting** | 124 shell scripts, JSON configs, Rofi RASI themes | `124/124 PASS` |
 | **Documentation & Licensing** | License fidelity, GPL-3.0 compliance, keybind parity | `24/24 PASS` |
 | **Config Isolation & Backups** | `userprefs.conf` non-tampering, backup manifest | `12/12 PASS` |
 | **Hardware Detection** | GPU, chassis, kernel headers, PipeWire audio | `22/22 PASS` |
 | **Management Scripts** | CLI flags, dry-run safety, rollback mechanism | `14/14 PASS` |
-| **Power Optimizer Subsystem** | Dynamic refresh rate, AC/BAT profiles, daemon | `18/18 PASS` |
+| **Power Optimizer Subsystem** | Dynamic refresh rate, AC/BAT profiles, daemon, EPP sysfs | `32/32 PASS` |
 | **yusei_settings Unit Tests** | REST API endpoints, fluent themes, safety engine | `18/18 PASS` |
 | **Hyprland Native Parser** | `Hyprland -c config/hypr/hyprland.conf --verify-config` | `config ok` |
 
