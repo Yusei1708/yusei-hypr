@@ -172,12 +172,30 @@ class SafetyEngine:
             if item["action"] == "symlink":
                 if target_p.exists() or target_p.is_symlink():
                     target_p.unlink()
-                # Create relative symlink if within same hierarchy or absolute
-                try:
-                    rel = os.path.relpath(source_p, target_p.parent)
-                    target_p.symlink_to(rel)
-                except Exception:
-                    target_p.symlink_to(source_p)
+                if category == "waybar_layout":
+                    local_cfg = target_p.parent / "configs" / source_p.name
+                    if not local_cfg.exists() and source_p.exists():
+                        local_cfg.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(source_p, local_cfg)
+                    if local_cfg.exists():
+                        target_p.symlink_to(local_cfg)
+                    else:
+                        target_p.symlink_to(source_p.resolve())
+                elif category == "waybar_style":
+                    local_style = target_p.parent / "style" / source_p.name
+                    if not local_style.exists() and source_p.exists():
+                        local_style.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(source_p, local_style)
+                    if local_style.exists():
+                        target_p.symlink_to(local_style)
+                    else:
+                        target_p.symlink_to(source_p.resolve())
+                else:
+                    try:
+                        target_p.symlink_to(source_p.resolve())
+                    except Exception:
+                        rel = os.path.relpath(source_p, target_p.parent)
+                        target_p.symlink_to(rel)
 
             elif item["action"] == "copy":
                 if target_p.is_symlink():
@@ -189,6 +207,11 @@ class SafetyEngine:
                 if target_p.exists():
                     content = target_p.read_text(encoding="utf-8", errors="ignore")
                 
+                local_theme = target_p.parent / "themes" / source_p.name
+                if not local_theme.exists() and source_p.exists() and source_p.name != "config.rasi":
+                    local_theme.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(source_p, local_theme)
+
                 new_theme_line = f'@theme "~/.config/rofi/themes/{source_p.name}"'
                 if "@theme" in content:
                     lines = []
@@ -203,37 +226,83 @@ class SafetyEngine:
                 target_p.write_text(content, encoding="utf-8")
 
             elif item["action"] == "modify_include_directive":
+                import re
+                local_kitty_theme = target_p.parent / "kitty-themes" / source_p.name
+                if not local_kitty_theme.exists() and source_p.exists():
+                    local_kitty_theme.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(source_p, local_kitty_theme)
+                if source_p.exists():
+                    try:
+                        shutil.copy2(source_p, target_p.parent / "current-theme.conf")
+                    except Exception:
+                        pass
+
                 content = ""
                 if target_p.exists():
                     content = target_p.read_text(encoding="utf-8", errors="ignore")
                 new_inc_line = f"include ./kitty-themes/{source_p.name}"
                 if "include ./kitty-themes/" in content:
-                    import re
-                    content = re.sub(r'include\s+\./kitty-themes/.*\.conf', new_inc_line, content)
+                    content = re.sub(r'^[#\s]*include\s+\./kitty-themes/.*\.conf', new_inc_line, content, flags=re.MULTILINE)
                 else:
                     content += f"\n{new_inc_line}\n"
                 target_p.write_text(content, encoding="utf-8")
 
             elif item["action"] == "modify_source_directive":
+                local_anim = target_p.parent / "animations" / source_p.name
+                if not local_anim.exists() and source_p.exists():
+                    local_anim.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(source_p, local_anim)
+
                 target_p.write_text(f"source = ./animations/{source_p.name}\n", encoding="utf-8")
                 user_anim = self.home / ".config/hypr/UserConfigs/UserAnimations.conf"
-                if user_anim.parent.exists():
+                if user_anim.parent.exists() and source_p.exists():
                     try:
                         shutil.copy2(source_p, user_anim)
                     except Exception:
                         pass
+
+        # Live reload daemons only when operating on the real user session
+        real_home = Path.home().resolve()
+        is_live_session = (self.home == real_home)
+
+        if is_live_session:
+            if category in ("waybar_layout", "waybar_style"):
                 try:
-                    subprocess.run(
-                        ["hyprctl", "reload", "config-only"],
+                    subprocess.Popen(
+                        ["bash", "-c", "pkill -x waybar 2>/dev/null; sleep 0.2; nohup waybar >/dev/null 2>&1 &"],
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
-                        check=False,
-                        timeout=3,
                     )
                 except Exception:
                     pass
-
-        if category == "wallpaper":
+            elif category == "kitty_theme":
+                try:
+                    subprocess.run(["pkill", "-SIGUSR1", "kitty"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+                except Exception:
+                    pass
+            elif category == "hyprland_animation":
+                try:
+                    subprocess.run(["hyprctl", "reload", "config-only"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False, timeout=3)
+                except Exception:
+                    pass
+            elif category == "wallpaper":
+                resolved_wp = str(Path(source_path).resolve())
+                engine_script = str(Path(__file__).resolve().parent.parent.parent / "scripts" / "theme-engine.sh")
+                wallust_script = str(self.home / ".config/hypr/scripts/WallustSwww.sh")
+                try:
+                    subprocess.Popen(
+                        [
+                            "bash", "-c",
+                            f'swww img "{resolved_wp}" --transition-type any --transition-fps 60 --transition-duration 1.0 >/dev/null 2>&1 || true; '
+                            f'[ -x "{wallust_script}" ] && "{wallust_script}" "{resolved_wp}" >/dev/null 2>&1 || true; '
+                            f'[ -x "{engine_script}" ] && "{engine_script}" "{resolved_wp}" >/dev/null 2>&1 || true'
+                        ],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                except Exception:
+                    pass
+        elif category == "wallpaper":
             try:
                 engine_script = Path(__file__).resolve().parent.parent.parent / "scripts" / "theme-engine.sh"
                 if engine_script.exists():

@@ -296,12 +296,13 @@ class DiscoveryEngine:
         for wp_dir in search_dirs:
             if not wp_dir.exists():
                 continue
-            for path in sorted(wp_dir.iterdir()):
+            for path in sorted(wp_dir.rglob("*")):
                 if path.is_file() and path.suffix.lower() in [".jpg", ".jpeg", ".png", ".webp"]:
                     if path.name in seen:
                         continue
                     seen.add(path.name)
                     name = path.stem
+                    folder_hint = path.parent.name if path.parent != wp_dir else "Wallpapers"
                     results.append({
                         "id": name,
                         "name": name.replace("-", " ").replace("_", " ").title(),
@@ -309,6 +310,6 @@ class DiscoveryEngine:
                         "category": "wallpaper",
                         "file_path": str(path),
                         "relative_url": f"/assets/wallpapers/{path.name}",
-                        "description": f"Curated artistic wallpaper ({path.suffix[1:].upper()}).",
+                        "description": f"{folder_hint} • {path.suffix[1:].upper()} ({path.name})",
                     })
         return results
