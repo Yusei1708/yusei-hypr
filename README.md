@@ -31,7 +31,8 @@
 <br/>
 
 [🌟 Highlights](#-highlights) •
-[🚀 What's New in v1.5.0](#-whats-new-in-v150-release-highlights) •
+[🚀 What's New in v1.6.0](#-whats-new-in-v160-release-highlights) •
+[📦 v1.5.0 Highlights](#-whats-new-in-v150-release-highlights) •
 [🏛️ Architecture](#-system-architecture) •
 [🧩 Components](#-component-matrix) •
 [⚙️ Settings App](#-yusei-settings-control-center) •
@@ -120,7 +121,22 @@ By separating the visual presentation layer from the core operational layer, **y
 
 ---
 
-## 🚀 What's New in v1.5.0 (Release Highlights)
+## 🚀 What's New in v1.6.0 (Release Highlights)
+
+The **v1.6.0** release delivers a major native GTK4 control center upgrade, non-destructive status bar hot-reloading preserving all application tray applets, streamlined notification cards, auto-adaptive typography contrast, and clean Hyprland v0.57+ compatibility:
+
+| Feature / Subsystem | Configuration & Implementation | Highlights & Capabilities |
+| :--- | :--- | :--- |
+| **Pure GTK4 / Libadwaita Yusei Settings** | `yusei_settings/ui/gtk/`<br/>Command: `yusei-settings`<br/>Keybind: `$mainMod, COMMA` | Re-architected as a native GTK4/Libadwaita desktop control center with responsive card grid views, category expanders, instant search filtering across 100% of discovered assets, atomic apply, and automated timestamped snapshot backups. |
+| **Waybar In-Place Hot-Reload (SIGUSR2)** | `config/hypr/scripts/Refresh.sh`<br/>`yusei_settings/core/safety.py`<br/>`yusei_settings/ui/gtk/window.py` | Eliminates destructive `pkill waybar` calls during wallpaper and style changes. Sending `killall -SIGUSR2 waybar` reloads layout and CSS directly in the active process, maintaining continuous D-Bus `StatusNotifierWatcher` registration and preserving all native tray applets (Antigravity, ChatGPT, Steam, Discord, Fcitx5). |
+| **Compact Notification Architecture** | `config/swaync/config.json`<br/>`config/swaync/style.css` | Reduced notification window popup width to 300px (~2/3 of previous 500px default); scaled icon geometries, compact margins, and proportional badge padding for unobtrusive notifications. |
+| **Dark Wallpaper Text Contrast Engine** | `config/hypr/scripts/WallpaperSelect.sh`<br/>`config/hypr/scripts/DarkLight.sh`<br/>`scripts/theme-engine.sh` | Automated luminescent contrast adaptation ensures crisp, legible foreground typography on SwayNC cards across both light and dark Wallust dynamic palette generations. |
+| **Hyprland 0.57+ Native Activation** | `misc:focus_on_activate = true`<br/>`config/hypr/hyprland.lua`<br/>`config/hypr/hyprland.conf` | Enables standard `xdg_activation_v1` window focus transitions across workspaces when selecting "Open" from system tray application context menus. |
+| **Warning Banner Suppression** | `misc:disable_watchdog_warning = true`<br/>Removed `dwindle:special_scale_factor` | Completely silences the Hyprland v0.57+ start-hyprland watchdog banner and cleans up deprecated options reported by `hyprctl deprecated-config`. |
+
+---
+
+## 📦 What's New in v1.5.0 (Release Highlights)
 
 The **v1.5.0** release delivers significant compositor upgrades, gaming latency optimizations, security polish, portable config parsing, and dedicated daily driver power tools:
 
