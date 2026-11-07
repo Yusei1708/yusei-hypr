@@ -11,6 +11,7 @@ import os
 import sys
 import signal
 import subprocess
+import json
 from pathlib import Path
 
 try:
@@ -71,30 +72,107 @@ class AntigravityTrayGuard:
         self.indicator.set_secondary_activate_target(item_open)
         return menu
 
-    def _on_open_clicked(self, _widget):
+    @staticmethod
+    def _hypr_dispatch(lua_cmd: str, legacy_cmd: str = None) -> bool:
+        """Dispatches command using Hyprland 0.57+ Lua syntax with legacy fallback."""
         try:
             res = subprocess.run(
-                ["hyprctl", "dispatch", "focuswindow", "class:^(antigravity|Antigravity)$"],
+                ["hyprctl", "dispatch", lua_cmd],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
                 text=True,
-                timeout=2,
+                timeout=1,
             )
-            if "ok" not in (res.stdout or "").lower():
-                if os.path.isfile(self.app_bin):
-                    subprocess.Popen([self.app_bin], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if "ok" in (res.stdout or "").lower():
+                return True
         except Exception:
             pass
 
-    def _on_quit_clicked(self, _widget):
+        if legacy_cmd:
+            try:
+                res_leg = subprocess.run(
+                    ["hyprctl", "dispatch"] + legacy_cmd.split(),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                    timeout=1,
+                )
+                return "ok" in (res_leg.stdout or "").lower()
+            except Exception:
+                pass
+        return False
+
+    def _get_antigravity_windows(self) -> list:
+        """Retrieves list of active Antigravity windows from Hyprland clients."""
         try:
-            subprocess.run(
-                ["hyprctl", "dispatch", "closewindow", "class:^(antigravity|Antigravity)$"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-                timeout=2,
-            )
+            out = subprocess.check_output(["hyprctl", "-j", "clients"], timeout=1, text=True)
+            clients = json.loads(out)
+            return [c for c in clients if "antigravity" in c.get("class", "").lower()]
+        except Exception:
+            return []
+
+    def _get_antigravity_main_pids(self) -> list:
+        """Finds main Antigravity Electron process PIDs (excluding helper/worker processes)."""
+        try:
+            out = subprocess.check_output(["pgrep", "-f", "/Antigravity-x64/antigravity"], timeout=1, text=True)
+            pids = [int(p) for p in out.strip().splitlines() if p.strip().isdigit()]
+            main_pids = []
+            for p in pids:
+                try:
+                    with open(f"/proc/{p}/cmdline", "rb") as f:
+                        raw = f.read()
+                        if b"--type=" not in raw:
+                            main_pids.append(p)
+                except Exception:
+                    pass
+            return main_pids
+        except Exception:
+            return []
+
+    def _on_open_clicked(self, _widget=None):
+        try:
+            windows = self._get_antigravity_windows()
+            if windows:
+                win = windows[0]
+                addr = win.get("address")
+                ws_name = win.get("workspace", {}).get("name") or str(win.get("workspace", {}).get("id"))
+
+                # Switch workspace first if needed
+                if ws_name:
+                    self._hypr_dispatch(f'hl.dsp.focus({{ workspace = "{ws_name}" }})', f"workspace {ws_name}")
+
+                # Focus window
+                if addr:
+                    self._hypr_dispatch(f'hl.dsp.focus({{ window = "address:{addr}" }})', f"focuswindow address:{addr}")
+                else:
+                    self._hypr_dispatch("hl.dsp.focus({ window = 'class:antigravity' })", "focuswindow class:antigravity")
+                return
+
+            # No window found in clients; spawn binary or second instance
+            if os.path.isfile(self.app_bin):
+                env = os.environ.copy()
+                subprocess.Popen([self.app_bin], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            if os.path.isfile(self.app_bin):
+                subprocess.Popen([self.app_bin], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def _on_quit_clicked(self, _widget=None):
+        try:
+            # 1. Close active Antigravity windows in Hyprland
+            for win in self._get_antigravity_windows():
+                addr = win.get("address")
+                if addr:
+                    self._hypr_dispatch(f'hl.dsp.window.close({{ window = "address:{addr}" }})', f"closewindow address:{addr}")
+                else:
+                    self._hypr_dispatch("hl.dsp.window.close({ window = 'class:antigravity' })", "closewindow class:antigravity")
+
+            # 2. Send SIGTERM to the main Electron processes to trigger app.quit() cleanly
+            main_pids = self._get_antigravity_main_pids()
+            for pid in main_pids:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except Exception:
+                    pass
         except Exception:
             pass
 

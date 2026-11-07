@@ -40,6 +40,7 @@ MANDATORY_V15_SCRIPTS=(
     "config/hypr/scripts/ScreenRecord.sh"
     "config/hypr/scripts/OcrGrab.sh"
     "config/hypr/scripts/SwayncSinglePopup.sh"
+    "config/hypr/scripts/AntigravityTrayGuard.py"
     "bin/notify-send"
     "bin/waybar"
 )
@@ -145,6 +146,16 @@ for script_rel in "${MANDATORY_V15_SCRIPTS[@]}"; do
         echo "not ok ${TEST_INDEX} - explicit check: ${script_rel} executable # FAIL: not executable"
         FAILED=$((FAILED + 1))
         FAILED_LIST+=("${script_rel} (not executable)")
+    elif [[ "$script_abs" == *.py ]]; then
+        if python3 -m py_compile "$script_abs" 2>"$TMP_DIR/err.log"; then
+            echo "ok ${TEST_INDEX} - explicit check: py_compile ${script_rel} (v1.5.0 power tool)"
+            PASSED=$((PASSED + 1))
+        else
+            err_msg="$(head -n 1 "$TMP_DIR/err.log" 2>/dev/null || echo "Python syntax error")"
+            echo "not ok ${TEST_INDEX} - explicit check: py_compile ${script_rel} # FAIL: ${err_msg}"
+            FAILED=$((FAILED + 1))
+            FAILED_LIST+=("${script_rel} (${err_msg})")
+        fi
     elif bash -n "$script_abs" 2>"$TMP_DIR/err.log"; then
         echo "ok ${TEST_INDEX} - explicit check: bash -n ${script_rel} (v1.5.0 power tool)"
         PASSED=$((PASSED + 1))
