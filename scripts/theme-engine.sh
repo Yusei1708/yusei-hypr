@@ -70,17 +70,34 @@ colors = {
 # Fallback PIL dominant color extraction
 if wall and os.path.isfile(wall):
     try:
+        import colorsys
         from PIL import Image
-        img = Image.open(wall)
+        img = Image.open(wall).convert('RGB')
         img.thumbnail((150, 150))
-        palette = img.convert('P', palette=Image.ADAPTIVE, colors=5)
+        palette = img.convert('P', palette=Image.ADAPTIVE, colors=8)
         color_counts = sorted(palette.getcolors(), reverse=True)
         palette_rgb = palette.getpalette()
-        dom_idx = color_counts[0][1]
-        r = palette_rgb[dom_idx * 3]
-        g = palette_rgb[dom_idx * 3 + 1]
-        b = palette_rgb[dom_idx * 3 + 2]
-        colors['primary'] = f'#{r:02x}{g:02x}{b:02x}'
+
+        best_hls = None
+        best_score = -1.0
+        for count, idx in color_counts:
+            r = palette_rgb[idx * 3] / 255.0
+            g = palette_rgb[idx * 3 + 1] / 255.0
+            b = palette_rgb[idx * 3 + 2] / 255.0
+            h, l, s = colorsys.rgb_to_hls(r, g, b)
+            # Prefer vibrant colors over near-black or near-white backgrounds
+            score = (s + 0.15) * (1.0 - abs(l - 0.55))
+            if score > best_score:
+                best_score = score
+                best_hls = (h, l, s)
+
+        if best_hls:
+            h, l, s = best_hls
+            # Enforce Material 3 Dark Theme Tone 80 readability (Lightness >= 0.74)
+            l = max(0.74, min(0.86, l))
+            s = max(0.45, min(0.90, s))
+            nr, ng, nb = colorsys.hls_to_rgb(h, l, s)
+            colors['primary'] = f'#{int(nr*255):02x}{int(ng*255):02x}{int(nb*255):02x}'
     except Exception:
         pass
 

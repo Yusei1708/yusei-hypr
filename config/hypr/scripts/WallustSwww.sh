@@ -149,4 +149,10 @@ if [ -f "$HOME/.config/hypr/wallust/wallust-hyprland.conf" ]; then
     hyprctl eval "hl.config({ general = { col = { active_border = '$c12', inactive_border = '$c10' } } })" >/dev/null 2>&1 || true
   fi
 fi
+
+# Synchronize Material 3 high-contrast SwayNC palette
+if [ -x "$HOME/.local/share/yusei-hypr/scripts/theme-engine.sh" ]; then
+  "$HOME/.local/share/yusei-hypr/scripts/theme-engine.sh" "$wallpaper_path" >/dev/null 2>&1 || true
+fi
+swaync-client -rs >/dev/null 2>&1 || true
 hyprctl reload >/dev/null 2>&1 || true
