@@ -18,6 +18,13 @@ for _prs in "${_ps[@]}"; do
 done
 pkill -f "WaybarCava.sh" 2>/dev/null || true
 
+# Wait briefly for old waybar to fully exit before respawning
+_wait_count=0
+while pidof waybar >/dev/null 2>&1 && [[ $_wait_count -lt 20 ]]; do
+    sleep 0.05
+    ((_wait_count++))
+done
+
 # Restart quickshell overview cleanly
 pkill qs 2>/dev/null || true
 if command -v qs >/dev/null 2>&1; then

@@ -212,7 +212,14 @@ else
         chmod +x "$CONFIG_HOME/hypr/initial-boot.sh" 2>/dev/null || true
     fi
 
-    # Đồng bộ các công cụ bin/ và runtime yusei_settings vào ~/.local
+    # Đồng bộ các công cụ bin/, lib/ và runtime yusei_settings vào ~/.local
+    if [[ -d "$DIR/lib" ]]; then
+        mkdir -p "$HOME/.local/lib"
+        cp -a "$DIR/lib"/* "$HOME/.local/lib/" 2>/dev/null || true
+        if [[ -f "$DIR/lib/waybar-hyprland-compat.c" ]] && command -v gcc >/dev/null 2>&1; then
+            gcc -shared -fPIC -O2 "$DIR/lib/waybar-hyprland-compat.c" -o "$HOME/.local/lib/libwaybar-hyprland.so" -ldl 2>/dev/null || true
+        fi
+    fi
     if [[ -d "$DIR/bin" ]]; then
         mkdir -p "$HOME/.local/bin" "$HOME/.local/share/yusei-hypr"
         cp -a "$DIR/bin"/* "$HOME/.local/bin/" 2>/dev/null || true

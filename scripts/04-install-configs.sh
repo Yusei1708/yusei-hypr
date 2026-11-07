@@ -154,7 +154,14 @@ if [[ -f "$DEFAULT_WALL" ]]; then
     cp -f "$DEFAULT_WALL" "$HOME/.config/hypr/wallpaper.jpg"
 fi
 
-# 5. Đồng bộ các công cụ bin/ và runtime yusei_settings vào ~/.local
+# 5. Đồng bộ các công cụ bin/, lib/ và runtime yusei_settings vào ~/.local
+if [[ -d "$SCRIPT_DIR/lib" ]]; then
+    mkdir -p "$HOME/.local/lib"
+    cp -a "$SCRIPT_DIR/lib"/* "$HOME/.local/lib/" 2>/dev/null || true
+    if [[ -f "$SCRIPT_DIR/lib/waybar-hyprland-compat.c" ]] && command -v gcc >/dev/null 2>&1; then
+        gcc -shared -fPIC -O2 "$SCRIPT_DIR/lib/waybar-hyprland-compat.c" -o "$HOME/.local/lib/libwaybar-hyprland.so" -ldl 2>/dev/null || true
+    fi
+fi
 if [[ -d "$SCRIPT_DIR/bin" ]]; then
     mkdir -p "$HOME/.local/bin" "$HOME/.local/share/yusei-hypr"
     cp -a "$SCRIPT_DIR/bin"/* "$HOME/.local/bin/" 2>/dev/null || true
