@@ -24,7 +24,7 @@ BACKUP_DIR="$CONFIG_HOME/yusei-hypr-backup-$TIMESTAMP"
 LATEST_LINK="$CONFIG_HOME/yusei-hypr-backup-latest"
 LEGACY_ROOT="$CONFIG_HOME/yusei-hypr-backups"
 
-CONFIG_TARGETS=("hypr" "waybar" "rofi" "kitty" "swaync" "wlogout" "fastfetch" "btop" "cava" "swappy" "wallust" "Kvantum" "qt5ct" "qt6ct")
+CONFIG_TARGETS=("hypr" "waybar" "rofi" "kitty" "swaync" "wlogout" "fastfetch" "btop" "cava" "swappy" "wallust" "Kvantum" "qt5ct" "qt6ct" "quickshell")
 
 if [ "$DRY_RUN" = "true" ]; then
     echo -e "${YELLOW}:: [DRY-RUN] Mô phỏng sao lưu cấu hình yusei-hypr...${NC}"

@@ -123,11 +123,19 @@ class KeybindParser:
         return k
 
     def parse(self) -> List[Dict[str, Any]]:
-        if not self.config_path.exists():
-            return []
+        target_path = self.config_path
+        if not target_path.exists():
+            lua_fallback = target_path.parent / "hyprland.lua"
+            if lua_fallback.exists():
+                target_path = lua_fallback
+            else:
+                return []
 
-        content = self.config_path.read_text(encoding="utf-8", errors="ignore")
+        content = target_path.read_text(encoding="utf-8", errors="ignore")
         lines = content.splitlines()
+
+        if target_path.suffix == ".lua":
+            return self._parse_lua(lines)
 
         current_category = "General"
         current_cat_id = "general"
@@ -199,6 +207,77 @@ class KeybindParser:
                 "raw_line": stripped,
                 "line_number": line_idx,
             })
+
+        return parsed_binds
+
+    def _parse_lua(self, lines: List[str]) -> List[Dict[str, Any]]:
+        parsed_binds: List[Dict[str, Any]] = []
+        current_category = "General"
+        current_cat_id = "general"
+
+        for line_idx, line in enumerate(lines, 1):
+            stripped = line.strip()
+            if not stripped:
+                continue
+
+            sec_match = re.match(r"^--\s*([0-9]+)\.\s*(.+)", stripped)
+            if sec_match:
+                sec_num = int(sec_match.group(1))
+                current_category = SECTION_MAP.get(sec_num, sec_match.group(2).split("(")[0].strip())
+                current_cat_id = SECTION_ID_MAP.get(
+                    sec_num,
+                    re.sub(r"[^a-z0-9]+", "_", current_category.lower()).strip("_"),
+                )
+                continue
+
+            # Check bindCommand(keys, cmd)
+            bc_match = re.search(r"bindCommand\(\s*([^,]+)\s*,\s*([^)]+)\)", stripped)
+            if bc_match:
+                raw_keys = bc_match.group(1).replace("mainMod", "Super").replace('"', "").replace("'", "").replace("..", "").replace("+", " ").strip()
+                cmd = bc_match.group(2).strip().strip('"').strip("'")
+                norm_tokens = self.normalize_mods(raw_keys)
+                combo_display = " + ".join(norm_tokens)
+                parsed_binds.append({
+                    "category": current_category,
+                    "category_id": current_cat_id,
+                    "directive": "bindCommand",
+                    "type": "bindCommand",
+                    "mods": " ".join(norm_tokens[:-1]) if len(norm_tokens) > 1 else "",
+                    "key": norm_tokens[-1] if norm_tokens else "",
+                    "keys": norm_tokens,
+                    "combo_display": combo_display,
+                    "description": "",
+                    "dispatcher": "exec",
+                    "args": cmd,
+                    "command": cmd,
+                    "raw_line": stripped,
+                    "line_number": line_idx,
+                })
+                continue
+
+            # Check hl.bind(keys, dispatcher)
+            hb_match = re.search(r"hl\.bind\(\s*([^,]+)\s*,\s*([^,\)]+)", stripped)
+            if hb_match:
+                raw_keys = hb_match.group(1).replace("mainMod", "Super").replace('"', "").replace("'", "").replace("..", "").replace("+", " ").strip()
+                dispatcher = hb_match.group(2).strip()
+                norm_tokens = self.normalize_mods(raw_keys)
+                combo_display = " + ".join(norm_tokens)
+                parsed_binds.append({
+                    "category": current_category,
+                    "category_id": current_cat_id,
+                    "directive": "hl.bind",
+                    "type": "hl.bind",
+                    "mods": " ".join(norm_tokens[:-1]) if len(norm_tokens) > 1 else "",
+                    "key": norm_tokens[-1] if norm_tokens else "",
+                    "keys": norm_tokens,
+                    "combo_display": combo_display,
+                    "description": "",
+                    "dispatcher": dispatcher,
+                    "args": "",
+                    "command": dispatcher,
+                    "raw_line": stripped,
+                    "line_number": line_idx,
+                })
 
         return parsed_binds
 

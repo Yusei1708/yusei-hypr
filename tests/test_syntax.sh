@@ -35,10 +35,12 @@ mapfile -t JSON_FILES < <(find "$REPO_ROOT" -type f \( -name "*.json" -o -name "
 TOTAL_SH=${#SH_FILES[@]}
 TOTAL_JSON=${#JSON_FILES[@]}
 
-# Explicitly verified v1.5.0 Power Tools
+# Explicitly verified Power Tools & Core Wrappers
 MANDATORY_V15_SCRIPTS=(
     "config/hypr/scripts/ScreenRecord.sh"
     "config/hypr/scripts/OcrGrab.sh"
+    "config/hypr/scripts/SwayncSinglePopup.sh"
+    "bin/notify-send"
 )
 TOTAL_V15=${#MANDATORY_V15_SCRIPTS[@]}
 TOTAL_TESTS=$((TOTAL_SH + TOTAL_JSON + TOTAL_V15))

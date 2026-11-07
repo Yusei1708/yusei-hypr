@@ -130,19 +130,24 @@ if [ "$DRY_RUN" = "true" ]; then
     echo -e "${YELLOW}[DRY-RUN] Sẽ đồng bộ bộ sưu tập hình nền vào ~/Pictures/wallpapers${NC}"
 else
     mkdir -p "$CONFIG_HOME"
-    CONFIG_DIRS=("hypr" "waybar" "rofi" "kitty" "swaync" "wlogout" "fastfetch" "btop" "cava" "swappy" "wallust" "Kvantum" "qt5ct" "qt6ct")
+    CONFIG_DIRS=("hypr" "waybar" "rofi" "kitty" "swaync" "wlogout" "fastfetch" "btop" "cava" "swappy" "wallust" "Kvantum" "qt5ct" "qt6ct" "quickshell")
 
     for dir in "${CONFIG_DIRS[@]}"; do
         if [[ -d "$DIR/config/$dir" ]]; then
             if [[ "$dir" == "hypr" && -d "$CONFIG_HOME/hypr" ]]; then
                 TMP_PRESERVE="$(mktemp -d /tmp/yusei-update-preserve-XXXXXX)"
                 HAS_USER_PREFS=false
+                HAS_USER_LUA=false
                 HAS_USER_CONFIGS=false
                 HAS_USER_SCRIPTS=false
 
                 if [[ -f "$CONFIG_HOME/hypr/userprefs.conf" ]]; then
                     cp -a "$CONFIG_HOME/hypr/userprefs.conf" "$TMP_PRESERVE/userprefs.conf"
                     HAS_USER_PREFS=true
+                fi
+                if [[ -f "$CONFIG_HOME/hypr/userprefs.lua" ]]; then
+                    cp -a "$CONFIG_HOME/hypr/userprefs.lua" "$TMP_PRESERVE/userprefs.lua"
+                    HAS_USER_LUA=true
                 fi
                 if [[ -d "$CONFIG_HOME/hypr/UserConfigs" ]]; then
                     cp -a "$CONFIG_HOME/hypr/UserConfigs" "$TMP_PRESERVE/"
@@ -162,6 +167,11 @@ else
                 elif [[ -f "$DIR/config/hypr/userprefs.conf" && ! -f "$CONFIG_HOME/hypr/userprefs.conf" ]]; then
                     cp -a "$DIR/config/hypr/userprefs.conf" "$CONFIG_HOME/hypr/userprefs.conf"
                     echo -e "${GREEN}✓ Đã khởi tạo cấu hình cá nhân mẫu: ~/.config/hypr/userprefs.conf${NC}"
+                fi
+
+                if [ "$HAS_USER_LUA" = "true" ]; then
+                    cp -a "$TMP_PRESERVE/userprefs.lua" "$CONFIG_HOME/hypr/userprefs.lua"
+                    echo -e "${GREEN}✓ Đã bảo tồn an toàn cấu hình cá nhân: ~/.config/hypr/userprefs.lua${NC}"
                 fi
 
                 if [ "$HAS_USER_CONFIGS" = "true" ]; then
@@ -202,13 +212,22 @@ else
         chmod +x "$CONFIG_HOME/hypr/initial-boot.sh" 2>/dev/null || true
     fi
 
-    # Đồng bộ các công cụ bin/
+    # Đồng bộ các công cụ bin/ và runtime yusei_settings vào ~/.local
     if [[ -d "$DIR/bin" ]]; then
-        mkdir -p "$HOME/.local/bin"
+        mkdir -p "$HOME/.local/bin" "$HOME/.local/share/yusei-hypr"
         cp -a "$DIR/bin"/* "$HOME/.local/bin/" 2>/dev/null || true
         chmod +x "$HOME/.local/bin"/* 2>/dev/null || true
         chmod +x "$DIR/bin"/* 2>/dev/null || true
-        echo -e "${GREEN}✓ Đã đồng bộ các công cụ bin/ vào ~/.local/bin${NC}"
+        if [[ -d "$DIR/yusei_settings" ]]; then
+            rm -rf "$HOME/.local/share/yusei-hypr/yusei_settings"
+            cp -a "$DIR/yusei_settings" "$HOME/.local/share/yusei-hypr/" 2>/dev/null || true
+        fi
+        if [[ -d "$DIR/scripts" ]]; then
+            rm -rf "$HOME/.local/share/yusei-hypr/scripts"
+            cp -a "$DIR/scripts" "$HOME/.local/share/yusei-hypr/" 2>/dev/null || true
+            chmod +x "$HOME/.local/share/yusei-hypr/scripts"/*.sh 2>/dev/null || true
+        fi
+        echo -e "${GREEN}✓ Đã đồng bộ các công cụ bin/ và yusei_settings vào ~/.local/bin & ~/.local/share/yusei-hypr${NC}"
     fi
 
     # Đồng bộ hình nền

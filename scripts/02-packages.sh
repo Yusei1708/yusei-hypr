@@ -120,12 +120,14 @@ PACKAGES=(
     imagemagick
     mpv
 
-    # JaKooLit Desktop Enhancements & Utilities
+    # JaKooLit Desktop Enhancements & Utilities (Desktop Overview & Tools)
     wlogout
     fastfetch
     btop
     cava
     swappy
+    quickshell
+    qt6-5compat
     pokemon-colorscripts-git
 
     # Vietnamese Input Method (Fcitx5)

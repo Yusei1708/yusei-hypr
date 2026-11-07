@@ -216,6 +216,22 @@ class SafetyEngine:
 
             elif item["action"] == "modify_source_directive":
                 target_p.write_text(f"source = ./animations/{source_p.name}\n", encoding="utf-8")
+                user_anim = self.home / ".config/hypr/UserConfigs/UserAnimations.conf"
+                if user_anim.parent.exists():
+                    try:
+                        shutil.copy2(source_p, user_anim)
+                    except Exception:
+                        pass
+                try:
+                    subprocess.run(
+                        ["hyprctl", "reload", "config-only"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=False,
+                        timeout=3,
+                    )
+                except Exception:
+                    pass
 
         if category == "wallpaper":
             try:

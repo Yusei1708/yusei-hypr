@@ -26,21 +26,27 @@ fi
 mkdir -p "$HOME/.config"
 
 # 2. Sao chép các thư mục cấu hình và bảo vệ dữ liệu người dùng
-CONFIG_DIRS=("hypr" "waybar" "rofi" "kitty" "swaync" "wlogout" "fastfetch" "btop" "cava" "swappy" "wallust" "Kvantum" "qt5ct" "qt6ct")
+CONFIG_DIRS=("hypr" "waybar" "rofi" "kitty" "swaync" "wlogout" "fastfetch" "btop" "cava" "swappy" "wallust" "Kvantum" "qt5ct" "qt6ct" "quickshell")
 
 for dir in "${CONFIG_DIRS[@]}"; do
     if [[ -d "$SCRIPT_DIR/config/$dir" ]]; then
         if [[ "$dir" == "hypr" && -d "$HOME/.config/hypr" ]]; then
-            # Bảo vệ cấu hình cá nhân của người dùng (userprefs.conf, UserConfigs và UserScripts)
+            # Bảo vệ cấu hình cá nhân của người dùng (userprefs.conf, userprefs.lua, UserConfigs và UserScripts)
             TMP_PRESERVE="/tmp/yusei-hypr/preserve_user_$$"
             mkdir -p "$TMP_PRESERVE"
             HAS_USER_PREFS=false
+            HAS_USER_LUA=false
             HAS_USER_CONFIGS=false
             HAS_USER_SCRIPTS=false
 
             if [[ -f "$HOME/.config/hypr/userprefs.conf" ]]; then
                 cp -a "$HOME/.config/hypr/userprefs.conf" "$TMP_PRESERVE/userprefs.conf"
                 HAS_USER_PREFS=true
+            fi
+
+            if [[ -f "$HOME/.config/hypr/userprefs.lua" ]]; then
+                cp -a "$HOME/.config/hypr/userprefs.lua" "$TMP_PRESERVE/userprefs.lua"
+                HAS_USER_LUA=true
             fi
 
             if [[ -d "$HOME/.config/hypr/UserConfigs" ]]; then
@@ -66,6 +72,11 @@ for dir in "${CONFIG_DIRS[@]}"; do
                     cp -a "$SCRIPT_DIR/config/hypr/userprefs.conf" "$HOME/.config/hypr/userprefs.conf"
                     echo -e "${GREEN}✓ Đã khởi tạo cấu hình cá nhân mẫu: ~/.config/hypr/userprefs.conf${NC}"
                 fi
+            fi
+
+            if [ "$HAS_USER_LUA" = "true" ]; then
+                cp -a "$TMP_PRESERVE/userprefs.lua" "$HOME/.config/hypr/userprefs.lua"
+                echo -e "${GREEN}✓ Đã bảo tồn an toàn cấu hình cá nhân tại: ~/.config/hypr/userprefs.lua${NC}"
             fi
 
             if [ "$HAS_USER_CONFIGS" = "true" ]; then
@@ -143,7 +154,24 @@ if [[ -f "$DEFAULT_WALL" ]]; then
     cp -f "$DEFAULT_WALL" "$HOME/.config/hypr/wallpaper.jpg"
 fi
 
-# 5. Cấu hình Pokemon Fastfetch cho Shell Terminal (Zsh & Bash)
+# 5. Đồng bộ các công cụ bin/ và runtime yusei_settings vào ~/.local
+if [[ -d "$SCRIPT_DIR/bin" ]]; then
+    mkdir -p "$HOME/.local/bin" "$HOME/.local/share/yusei-hypr"
+    cp -a "$SCRIPT_DIR/bin"/* "$HOME/.local/bin/" 2>/dev/null || true
+    chmod +x "$HOME/.local/bin"/* 2>/dev/null || true
+    if [[ -d "$SCRIPT_DIR/yusei_settings" ]]; then
+        rm -rf "$HOME/.local/share/yusei-hypr/yusei_settings"
+        cp -a "$SCRIPT_DIR/yusei_settings" "$HOME/.local/share/yusei-hypr/" 2>/dev/null || true
+    fi
+    if [[ -d "$SCRIPT_DIR/scripts" ]]; then
+        rm -rf "$HOME/.local/share/yusei-hypr/scripts"
+        cp -a "$SCRIPT_DIR/scripts" "$HOME/.local/share/yusei-hypr/" 2>/dev/null || true
+        chmod +x "$HOME/.local/share/yusei-hypr/scripts"/*.sh 2>/dev/null || true
+    fi
+    echo -e "${GREEN}✓ Đã cài đặt các công cụ CLI (yusei-settings, power-optimizer) vào ~/.local/bin${NC}"
+fi
+
+# 6. Cấu hình Pokemon Fastfetch cho Shell Terminal (Zsh & Bash)
 POKEMON_BANNER='pokemon-colorscripts --no-title -s -r | fastfetch -c $HOME/.config/fastfetch/config-pokemon.jsonc --logo-type file-raw --logo-height 10 --logo-width 5 --logo -'
 for rc in "$HOME/.zshrc" "$HOME/.bashrc"; do
     if [[ -f "$rc" ]]; then

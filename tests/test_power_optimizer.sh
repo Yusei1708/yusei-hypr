@@ -48,6 +48,8 @@ MOCK_HOME="$TMP_DIR/home"
 MOCK_CONFIG="$MOCK_HOME/.config/hypr"
 MOCK_SYSFS="$TMP_DIR/sysfs"
 mkdir -p "$MOCK_CONFIG" "$MOCK_SYSFS/power_supply" "$MOCK_SYSFS/cpu/cpu0/cpufreq"
+export HOME="$MOCK_HOME"
+export POWER_STATE_FILE="$TMP_DIR/power.state"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 TOTAL_TESTS=32
@@ -377,9 +379,9 @@ fi
 EOF
 chmod +x "$MOCK_BIN_CYCLE/powerprofilesctl"
 
-CYCLE_OUT_1="$(PATH="$MOCK_BIN_CYCLE:$PATH" bash "$OPTIMIZER_SCRIPT" --cycle-profile --dry-run 2>&1)"
-grep -q "powerprofilesctl set balanced" <<< "$CYCLE_OUT_1"
-assert_check "--cycle-profile from eco advances to balanced profile" $?
+CYCLE_OUT_1="$(PATH="$MOCK_BIN_CYCLE:$PATH" POWER_STATE_FILE="$TMP_DIR/cycle.state" bash "$OPTIMIZER_SCRIPT" --cycle-profile --dry-run 2>&1)"
+if grep -q "powerprofilesctl set balanced" <<< "$CYCLE_OUT_1"; then c_res=0; else c_res=1; fi
+assert_check "--cycle-profile from eco advances to balanced profile" $c_res
 
 # ------------------------------------------------------------------------------
 # 21. Sysfs Energy Performance Preference (EPP) Detection on Modern P-State Drivers

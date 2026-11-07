@@ -707,7 +707,9 @@ set_display_refresh_rate() {
         fi
     else
         if command -v hyprctl >/dev/null 2>&1 && [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-${WAYLAND_DISPLAY:-}}" ]]; then
-            hyprctl keyword monitor "$mon_rule" >/dev/null 2>&1 || true
+            if ! hyprctl eval "hl.monitor({ output = '${MONITOR_NAME}', mode = '${MONITOR_WIDTH}x${MONITOR_HEIGHT}@${target_hz}', position = '${MONITOR_X}x${MONITOR_Y}', scale = '${MONITOR_SCALE}' })" >/dev/null 2>&1; then
+                hyprctl keyword monitor "$mon_rule" >/dev/null 2>&1 || true
+            fi
         fi
         CURRENT_HZ="$target_hz"
         save_state "current_hz" "$target_hz"
@@ -724,24 +726,24 @@ apply_power_profile() {
             local sys_gov="powersave"
             local epp="power"
             local icon="battery-low"
-            local title="Chế độ Tiết kiệm Pin (Eco)"
-            local msg="Đã kích hoạt profile Eco. Giảm tiêu thụ năng lượng."
+            local title="Power Profile"
+            local msg="Eco (Power-saver)"
             ;;
         balanced)
             local ppd_target="balanced"
             local sys_gov="powersave"
             local epp="balance_performance"
             local icon="preferences-system-power"
-            local title="Chế độ Cân bằng (Balanced)"
-            local msg="Đã kích hoạt profile Balanced. Hiệu năng & tiêu thụ cân đối."
+            local title="Power Profile"
+            local msg="Balanced"
             ;;
         turbo)
             local ppd_target="performance"
             local sys_gov="performance"
             local epp="performance"
             local icon="battery-charging"
-            local title="Chế độ Hiệu năng Cao (Turbo)"
-            local msg="Đã kích hoạt profile Turbo. Xung nhịp và hiệu năng tối đa."
+            local title="Power Profile"
+            local msg="Turbo (Performance)"
             ;;
         *)
             echo -e "${RED}[ERROR] Profile không hợp lệ: $profile (Chọn eco, balanced, hoặc turbo)${NC}" >&2
@@ -782,20 +784,20 @@ apply_power_profile() {
         detect_monitor
         if [[ "$profile" == "eco" ]]; then
             set_display_refresh_rate 60
-            msg="${msg} Tần số quét: 60Hz."
+            msg="${msg} | 60Hz"
         elif [[ "$profile" == "turbo" ]]; then
             if [[ "$MAX_HZ" -gt 60 ]]; then
                 set_display_refresh_rate "$MAX_HZ"
-                msg="${msg} Tần số quét: ${MAX_HZ}Hz."
+                msg="${msg} | ${MAX_HZ}Hz"
             fi
         elif [[ "$profile" == "balanced" ]]; then
             detect_power_status
             if [[ "$AC_ONLINE" = "true" && "$MAX_HZ" -gt 60 ]]; then
                 set_display_refresh_rate "$MAX_HZ"
-                msg="${msg} Tần số quét: ${MAX_HZ}Hz (Nguồn AC)."
+                msg="${msg} | ${MAX_HZ}Hz (AC)"
             elif [[ "$AC_ONLINE" = "false" ]]; then
                 set_display_refresh_rate 60
-                msg="${msg} Tần số quét: 60Hz (Nguồn Pin)."
+                msg="${msg} | 60Hz (Battery)"
             fi
         fi
     fi
@@ -902,7 +904,7 @@ action_toggle_hz() {
     fi
 
     set_display_refresh_rate "$target_hz"
-    send_notification "Tần số quét màn hình" "Đã chuyển đổi sang ${target_hz}Hz (${MONITOR_NAME})" "video-display"
+    send_notification "Refresh Rate" "${target_hz}Hz (${MONITOR_NAME})" "video-display"
     if [[ "$OUTPUT_JSON" = "false" && "$DRY_RUN" = "false" ]]; then
         echo -e "${GREEN}✓ Đã chuyển đổi tần số quét màn hình ${MONITOR_NAME} sang: ${target_hz}Hz${NC}"
     fi
@@ -1001,7 +1003,7 @@ action_menu() {
                     [[ -z "$cur" || "$cur" == "null" ]] && cur="{}"
                 fi
                 echo "$cur" | jq --argjson v "$new_auto" '.auto_60hz = $v' > "$CONFIG_FILE.tmp" && mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
-                send_notification "Nguồn điện & Pin" "Đã $([ "$new_auto" = "true" ] && echo "BẬT" || echo "TẮT") tự động hạ 60Hz khi dùng pin"
+                send_notification "Power & Battery" "Auto 60Hz: $([ "$new_auto" = "true" ] && echo "Enabled" || echo "Disabled")"
                 ;;
             *"yusei_settings"*)
                 if command -v yusei-settings >/dev/null 2>&1; then
