@@ -6,9 +6,9 @@
 set -euo pipefail
 
 # Always reset and bind SUPER+J/K the same way on startup
-hyprctl keyword unbind SUPER,J || true
-hyprctl keyword unbind SUPER,K || true
-
-# Cycle windows globally: J = next, K = previous
-hyprctl keyword bind SUPER,J,cyclenext
-hyprctl keyword bind SUPER,K,cyclenext,prev
+if ! hyprctl eval "hl.unbind('SUPER + J'); hl.unbind('SUPER + K'); hl.bind('SUPER + J', hl.dsp.focus_window({ target = 'cycle', dir = 'next' })); hl.bind('SUPER + K', hl.dsp.focus_window({ target = 'cycle', dir = 'prev' }))" >/dev/null 2>&1; then
+    hyprctl keyword unbind SUPER,J >/dev/null 2>&1 || true
+    hyprctl keyword unbind SUPER,K >/dev/null 2>&1 || true
+    hyprctl keyword bind SUPER,J,cyclenext >/dev/null 2>&1 || true
+    hyprctl keyword bind SUPER,K,cyclenext,prev >/dev/null 2>&1 || true
+fi
