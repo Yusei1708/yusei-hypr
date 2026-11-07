@@ -9,21 +9,14 @@ set -euo pipefail
 SCRIPTSDIR=$HOME/.config/hypr/scripts
 UserScripts=$HOME/.config/hypr/UserScripts
 
-# Kill already running UI processes
-_ps=(waybar rofi swaync ags cava)
+# Kill already running UI processes (preserve waybar so StatusNotifierWatcher stays alive)
+_ps=(rofi swaync ags cava)
 for _prs in "${_ps[@]}"; do
     if pidof "${_prs}" >/dev/null 2>&1; then
         pkill "${_prs}" 2>/dev/null || true
     fi
 done
 pkill -f "WaybarCava.sh" 2>/dev/null || true
-
-# Wait briefly for old waybar to fully exit before respawning
-_wait_count=0
-while pidof waybar >/dev/null 2>&1 && [[ $_wait_count -lt 20 ]]; do
-    sleep 0.05
-    ((_wait_count++))
-done
 
 # Restart quickshell overview cleanly
 pkill qs 2>/dev/null || true
@@ -34,19 +27,18 @@ fi
 # Reload Hyprland border colors, window rules & blur cache if running
 hyprctl reload >/dev/null 2>&1 || true
 
-# Restart waybar
+# Reload waybar in-place via SIGUSR2 (or start if not running)
 sleep 0.1
-nohup waybar >/dev/null 2>&1 &
+if pidof waybar >/dev/null 2>&1; then
+    killall -SIGUSR2 waybar 2>/dev/null || pkill -SIGUSR2 waybar 2>/dev/null || true
+else
+    nohup waybar >/dev/null 2>&1 &
+fi
 
 # Restart swaync
 sleep 0.2
 nohup swaync >/dev/null 2>&1 &
 swaync-client --reload-config 2>/dev/null || true
-
-# Ensure Antigravity Tray Guard is active
-if [[ -f "${SCRIPTSDIR}/AntigravityTrayGuard.py" ]] && ! pgrep -f "[A]ntigravityTrayGuard.py" >/dev/null 2>&1; then
-    nohup python3 "${SCRIPTSDIR}/AntigravityTrayGuard.py" >/dev/null 2>&1 &
-fi
 
 # Relaunch rainbow borders if enabled
 if [[ -f "${UserScripts}/RainbowBorders.sh" ]]; then

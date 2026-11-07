@@ -40,7 +40,6 @@ MANDATORY_V15_SCRIPTS=(
     "config/hypr/scripts/ScreenRecord.sh"
     "config/hypr/scripts/OcrGrab.sh"
     "config/hypr/scripts/SwayncSinglePopup.sh"
-    "config/hypr/scripts/AntigravityTrayGuard.py"
     "bin/notify-send"
     "bin/waybar"
 )

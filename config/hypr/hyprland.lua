@@ -323,7 +323,7 @@ hl.config({
         key_press_enables_dpms     = true,
         enable_swallow             = true,
         swallow_regex              = "^(kitty|Alacritty)$",
-        focus_on_activate          = false,
+        focus_on_activate          = true,
         initial_workspace_tracking = 0,
         middle_click_paste         = false,
         enable_anr_dialog          = true,

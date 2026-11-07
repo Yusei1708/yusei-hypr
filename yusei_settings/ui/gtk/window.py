@@ -492,7 +492,7 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
             self.safety.rollback(snapshot_id)
             if category in ("waybar_layout", "waybar_style", None):
                 subprocess.Popen(
-                    ["bash", "-c", "pkill -x waybar 2>/dev/null; sleep 0.2; nohup waybar >/dev/null 2>&1 &"],
+                    ["bash", "-c", "pkill -SIGUSR2 waybar 2>/dev/null || nohup waybar >/dev/null 2>&1 &"],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
