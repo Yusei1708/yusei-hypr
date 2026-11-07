@@ -140,9 +140,9 @@ apply_image_wallpaper() {
 
   # Run additional scripts (pass the image path to avoid cache race conditions)
   "$SCRIPTSDIR/WallustSwww.sh" "$image_path"
-  sleep 2
-  "$SCRIPTSDIR/Refresh.sh"
-  sleep 1
+  sleep 0.5
+  "$SCRIPTSDIR/RefreshNoWaybar.sh"
+  pkill -SIGUSR2 waybar 2>/dev/null || true
 
 }
 

@@ -43,6 +43,11 @@ sleep 0.2
 nohup swaync >/dev/null 2>&1 &
 swaync-client --reload-config 2>/dev/null || true
 
+# Ensure Antigravity Tray Guard is active
+if [[ -f "${SCRIPTSDIR}/AntigravityTrayGuard.py" ]] && ! pgrep -f "[A]ntigravityTrayGuard.py" >/dev/null 2>&1; then
+    nohup python3 "${SCRIPTSDIR}/AntigravityTrayGuard.py" >/dev/null 2>&1 &
+fi
+
 # Relaunch rainbow borders if enabled
 if [[ -f "${UserScripts}/RainbowBorders.sh" ]]; then
     "${UserScripts}/RainbowBorders.sh" &

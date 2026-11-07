@@ -266,13 +266,18 @@ class SafetyEngine:
         is_live_session = (self.home == real_home)
 
         if is_live_session:
-            if category in ("waybar_layout", "waybar_style"):
+            if category == "waybar_layout":
                 try:
                     subprocess.Popen(
                         ["bash", "-c", "pkill -x waybar 2>/dev/null; sleep 0.2; nohup waybar >/dev/null 2>&1 &"],
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
                     )
+                except Exception:
+                    pass
+            elif category == "waybar_style":
+                try:
+                    subprocess.run(["pkill", "-SIGUSR2", "waybar"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
                 except Exception:
                     pass
             elif category == "kitty_theme":

@@ -215,6 +215,9 @@
 		"title<.*Discord.*>": " ",
 
 		"title<.*ChatGPT.*>": "󰚩 ",
+		"class<[Cc]hatgpt|ChatGPT>": "󰚩 ",
+		"class<[Aa]ntigravity>": "󰨞 ",
+		"title<.*Antigravity.*>": "󰨞 ",
 		"title<.*deepseek.*>": "󰚩 ",
 		"title<.*qwen.*>": "󰚩 ",
 		"class<subl>": "󰅳 ",

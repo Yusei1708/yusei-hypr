@@ -82,4 +82,9 @@ else
     echo ":: [Supervisor] Hypridle is already running."
 fi
 
+# 7. Antigravity Tray Persistence Guard
+if [[ -f "$HOME/.config/hypr/scripts/AntigravityTrayGuard.py" ]] && ! pgrep -f "[A]ntigravityTrayGuard.py" >/dev/null 2>&1; then
+    nohup python3 "$HOME/.config/hypr/scripts/AntigravityTrayGuard.py" >/dev/null 2>&1 &
+fi
+
 echo ":: [Supervisor] Singleton desktop daemons initialized successfully."
