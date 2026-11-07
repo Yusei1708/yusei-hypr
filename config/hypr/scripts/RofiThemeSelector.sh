@@ -136,6 +136,10 @@ while true; do
   # Handle Rofi's exit code
   if [ $rofi_exit_code -eq 0 ]; then # Enter
     if [[ "$chosen_index_from_rofi" =~ ^[0-9]+$ ]] && [ "$chosen_index_from_rofi" -lt "${#available_theme_names[@]}" ]; then
+      if [ "$chosen_index_from_rofi" -eq "$current_selection_index" ]; then
+        notify_user "$IDIR/ja.png" "Rofi Theme Applied" "$(basename "$theme_to_preview_now" .rasi)"
+        break
+      fi
       current_selection_index="$chosen_index_from_rofi"
     fi
   elif [ $rofi_exit_code -eq 1 ]; then # Escape

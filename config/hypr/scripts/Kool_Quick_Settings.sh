@@ -6,10 +6,20 @@
 # Modify this config file for default terminal and EDITOR
 config_file="$HOME/.config/hypr/UserConfigs/01-UserDefaults.conf"
 
-tmp_config_file=$(mktemp)
-sed 's/^\$//g; s/ = /=/g' "$config_file" > "$tmp_config_file"
-source "$tmp_config_file"
-# ##################################### #
+if [[ -f "$config_file" ]]; then
+    if grep -E '^[[:space:]]*env[[:space:]]*=[[:space:]]*EDITOR,' "$config_file" >/dev/null 2>&1; then
+        _ed=$(grep -E '^[[:space:]]*env[[:space:]]*=[[:space:]]*EDITOR,' "$config_file" | tail -n1 | sed -E 's/.*EDITOR,\s*//; s/[#[:space:]].*//')
+        [[ -n "$_ed" ]] && export EDITOR="$_ed"
+    fi
+    tmp_config_file=$(mktemp)
+    sed 's/^\$//g; s/ = /=/g' "$config_file" > "$tmp_config_file"
+    # shellcheck disable=SC1090
+    source "$tmp_config_file" 2>/dev/null || true
+    rm -f "$tmp_config_file"
+fi
+
+edit="${edit:-${EDITOR:-$(command -v vim || command -v nano || echo "nano")}}"
+term="${term:-kitty}"
 
 # variables
 configs="$HOME/.config/hypr/configs"
@@ -160,16 +170,21 @@ rainbow_borders_menu() {
     esac
 
     # Run refresh if available
-    if [[ -x "$refresh_script" ]]; then
-        "$refresh_script" >/dev/null 2>&1 &
+    if [[ "$current" == "disabled" ]]; then
+        if [[ -x "$refresh_script" ]]; then
+            "$refresh_script" >/dev/null 2>&1 &
+        else
+            hyprctl reload >/dev/null 2>&1 || true
+        fi
+        show_info "Rainbow Borders disabled."
+    else
+        if [[ -x "$refresh_script" ]]; then
+            "$refresh_script" >/dev/null 2>&1 &
+        elif [[ -x "$rainbow_script" ]]; then
+            "$rainbow_script" >/dev/null 2>&1 &
+        fi
+        show_info "Rainbow Borders: $current_display enabled."
     fi
-
-    # Apply mode immediately (in case refresh doesn't trigger it)
-    if [[ "$current" != "disabled" && -x "$rainbow_script" ]]; then
-        "$rainbow_script" >/dev/null 2>&1 &
-    fi
-
-    # No notifications; mode is shown in the menu
 }
 
 # Function to display the menu options without numbers
@@ -219,14 +234,14 @@ main() {
         "Edit User Keybinds") file="$UserConfigs/UserKeybinds.conf" ;;
         "Edit User Startup Apps (overlay)") file="$UserConfigs/Startup_Apps.conf" ;;
         "Edit User Window Rules (overlay)") file="$UserConfigs/WindowRules.conf" ;;
-        "Edit User Settings") file="$configs/SystemSettings.conf"; show_info "Editing default settings. Copy to UserConfigs/UserSettings.conf to override." ;;
+        "Edit User Settings") file="$UserConfigs/UserSettings.conf" ;;
         "Edit User Decorations") file="$UserConfigs/UserDecorations.conf" ;;
         "Edit User Animations") file="$UserConfigs/UserAnimations.conf" ;;
         "Edit User Laptop Settings") file="$UserConfigs/Laptops.conf" ;;
-        "Edit System Default Keybinds") file="$configs/Keybinds.conf" ;;
-        "Edit System Default Startup Apps") file="$configs/Startup_Apps.conf" ;;
-        "Edit System Default Window Rules") file="$configs/WindowRules.conf" ;;
-        "Edit System Default Settings") file="$configs/SystemSettings.conf" ;;
+        "Edit System Default Keybinds") file="$HOME/.config/hypr/hyprland.lua"; show_info "Opening hyprland.lua (Section 7: Keybindings)" ;;
+        "Edit System Default Startup Apps") file="$HOME/.config/hypr/hyprland.lua"; show_info "Opening hyprland.lua (Section 4: Autostart)" ;;
+        "Edit System Default Window Rules") file="$HOME/.config/hypr/hyprland.lua"; show_info "Opening hyprland.lua (Section 8: Window Rules)" ;;
+        "Edit System Default Settings") file="$HOME/.config/hypr/hyprland.lua"; show_info "Opening hyprland.lua (Section 5: General & Core Settings)" ;;
         "Set SDDM Wallpaper") $scriptsDir/sddm_wallpaper.sh --normal ;;
         "Choose Kitty Terminal Theme") $scriptsDir/Kitty_themes.sh ;;
         "Configure Monitors (nwg-displays)") 
@@ -271,7 +286,9 @@ main() {
 
     # Open the selected file in the terminal with the text editor
     if [ -n "$file" ]; then
-        $term -e $edit "$file"
+        ${term:-kitty} -e ${edit:-nano} "$file"
+        hyprctl reload >/dev/null 2>&1 || true
+        show_info "Config reloaded"
     fi
 }
 

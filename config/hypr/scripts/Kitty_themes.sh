@@ -31,6 +31,9 @@ apply_kitty_theme_to_config() {
   temp_kitty_config_file=$(mktemp)
   cp "$kitty_config" "$temp_kitty_config_file"
 
+  # Remove conflicting current-theme.conf or BEGIN_KITTY_THEME blocks
+  sed -i -E '/# BEGIN_KITTY_THEME/,/# END_KITTY_THEME/d; /^[#[:space:]]*include\s+current-theme\.conf/d' "$temp_kitty_config_file"
+
   if grep -q -E '^[#[:space:]]*include\s+\./kitty-themes/.*\.conf' "$temp_kitty_config_file"; then
     sed -i -E "s|^([#[:space:]]*include\s+\./kitty-themes/).*\.conf|include ./kitty-themes/$theme_name_to_apply.conf|g" "$temp_kitty_config_file"
   else
@@ -42,6 +45,7 @@ apply_kitty_theme_to_config() {
 
   cp "$temp_kitty_config_file" "$kitty_config"
   rm "$temp_kitty_config_file"
+  cp -f "$theme_file_path_to_apply" "$HOME/.config/kitty/current-theme.conf" 2>/dev/null || true
 
   for pid_kitty in $(pidof kitty); do
     if [ -n "$pid_kitty" ]; then
@@ -114,6 +118,10 @@ while true; do
 
   if [ $rofi_exit_code -eq 0 ]; then
     if [[ "$chosen_index_from_rofi" =~ ^[0-9]+$ ]] && [ "$chosen_index_from_rofi" -lt "${#available_theme_names[@]}" ]; then
+      if [ "$chosen_index_from_rofi" -eq "$current_selection_index" ]; then
+        notify_user "$iDIR/ja.png" "Kitty Theme Applied" "$theme_to_preview_now"
+        break
+      fi
       current_selection_index="$chosen_index_from_rofi"
     else
       :
