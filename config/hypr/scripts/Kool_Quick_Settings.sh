@@ -206,6 +206,7 @@ Edit System Default Startup Apps
 Edit System Default Window Rules
 Edit System Default Settings
 --- UTILITIES ---
+Yusei Desktop Settings (GUI / Web)
 Set SDDM Wallpaper
 Choose Kitty Terminal Theme
 Configure Monitors (nwg-displays)
@@ -242,6 +243,7 @@ main() {
         "Edit System Default Startup Apps") file="$HOME/.config/hypr/hyprland.lua"; show_info "Opening hyprland.lua (Section 4: Autostart)" ;;
         "Edit System Default Window Rules") file="$HOME/.config/hypr/hyprland.lua"; show_info "Opening hyprland.lua (Section 8: Window Rules)" ;;
         "Edit System Default Settings") file="$HOME/.config/hypr/hyprland.lua"; show_info "Opening hyprland.lua (Section 5: General & Core Settings)" ;;
+        "Yusei Desktop Settings (GUI / Web)") yusei-settings >/dev/null 2>&1 & ;;
         "Set SDDM Wallpaper") $scriptsDir/sddm_wallpaper.sh --normal ;;
         "Choose Kitty Terminal Theme") $scriptsDir/Kitty_themes.sh ;;
         "Configure Monitors (nwg-displays)") 

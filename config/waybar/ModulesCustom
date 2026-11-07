@@ -49,8 +49,9 @@
 "custom/settings": {
 	"format": " ",
 	"on-click": "$HOME/.config/hypr/scripts/Kool_Quick_Settings.sh",
+	"on-click-right": "yusei-settings",
 	"tooltip": true,
-	"tooltip-format": "Launch KooL Hyprland Settings Menu",
+	"tooltip-format": "Left click: Quick Settings\nRight click: Yusei Settings GUI",
 },
 
 "custom/cycle_wall": {

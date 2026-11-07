@@ -175,6 +175,11 @@ if [[ -d "$SCRIPT_DIR/bin" ]]; then
         cp -a "$SCRIPT_DIR/scripts" "$HOME/.local/share/yusei-hypr/" 2>/dev/null || true
         chmod +x "$HOME/.local/share/yusei-hypr/scripts"/*.sh 2>/dev/null || true
     fi
+    if [[ -f "$SCRIPT_DIR/config/yusei-settings.desktop" ]]; then
+        mkdir -p "$HOME/.local/share/applications"
+        cp -f "$SCRIPT_DIR/config/yusei-settings.desktop" "$HOME/.local/share/applications/"
+        update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
+    fi
     echo -e "${GREEN}✓ Đã cài đặt các công cụ CLI (yusei-settings, power-optimizer) vào ~/.local/bin${NC}"
 fi
 

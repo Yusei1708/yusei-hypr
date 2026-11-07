@@ -234,6 +234,11 @@ else
             cp -a "$DIR/scripts" "$HOME/.local/share/yusei-hypr/" 2>/dev/null || true
             chmod +x "$HOME/.local/share/yusei-hypr/scripts"/*.sh 2>/dev/null || true
         fi
+        if [[ -f "$DIR/config/yusei-settings.desktop" ]]; then
+            mkdir -p "$HOME/.local/share/applications"
+            cp -f "$DIR/config/yusei-settings.desktop" "$HOME/.local/share/applications/"
+            update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
+        fi
         echo -e "${GREEN}✓ Đã đồng bộ các công cụ bin/ và yusei_settings vào ~/.local/bin & ~/.local/share/yusei-hypr${NC}"
     fi
 

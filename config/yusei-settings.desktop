@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=Yusei Settings
+Name[vi]=Cài Đặt Yusei
+Comment=Linux & Hyprland Desktop Control Center
+Comment[vi]=Trung tâm cài đặt giao diện và hệ thống Hyprland
+Exec=yusei-settings
+Icon=preferences-desktop
+Terminal=false
+Type=Application
+Categories=Settings;DesktopSettings;Utility;
+Keywords=settings;hyprland;waybar;theme;wallpaper;cài đặt;
+StartupNotify=true
