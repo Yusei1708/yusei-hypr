@@ -15,6 +15,10 @@ configuration {
 * {
     background-color: transparent;
     text-color: @fg-col;
+    normal-background: transparent;
+    alternate-normal-background: transparent;
+    normal-foreground: @fg-col;
+    alternate-normal-foreground: @fg-col;
 }
 
 window {
@@ -68,19 +72,33 @@ element {
     border-radius: 14px;
     spacing: 12px;
     orientation: horizontal;
+    background-color: transparent;
+    text-color: @fg-col;
+}
+
+element normal.normal,
+element alternate.normal,
+element normal.active,
+element alternate.active {
+    background-color: transparent;
+    text-color: @fg-col;
 }
 
 element-icon {
     size: 28px;
     horizontal-align: 0.5;
+    background-color: transparent;
 }
 
 element-text {
     vertical-align: 0.5;
     text-color: inherit;
+    background-color: transparent;
 }
 
-element selected {
+element selected,
+element selected.normal,
+element selected.active {
     background-color: @selected-col;
     text-color: @selected-fg;
 }
