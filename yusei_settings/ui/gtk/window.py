@@ -144,8 +144,8 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
 
             # Quick Filter Bar
             group_filter = Adw.PreferencesGroup(
-                title="Tìm Kiếm & Lọc Nhanh",
-                description="Hiển thị đầy đủ 100% kho giao diện, bố cục, bảng màu và hình nền trên hệ thống"
+                title=esc("Tìm Kiếm & Lọc Nhanh"),
+                description=esc("Hiển thị đầy đủ 100% kho giao diện, bố cục, bảng màu và hình nền trên hệ thống")
             )
             search_entry = Gtk.SearchEntry(
                 placeholder_text="Nhập tên layout, style, theme Rofi/Kitty hoặc tên hình nền để lọc..."
@@ -167,7 +167,7 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
                 subtitle_fn,
                 expanded_by_default: bool = False
             ):
-                group = Adw.PreferencesGroup(title=group_title)
+                group = Adw.PreferencesGroup(title=esc(group_title))
                 expander = Adw.ExpanderRow(
                     title=esc(f"{expander_title} ({len(items)} lựa chọn)"),
                     subtitle=esc(expander_subtitle)
@@ -270,8 +270,8 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
             cur_rounding, cur_blur = self._get_hypr_decoration_state()
 
             group_hypr = Adw.PreferencesGroup(
-                title="Hiệu Ứng & Bo Góc Cửa Sổ",
-                description="Thay đổi có hiệu lực ngay lập tức trên phiên Hyprland hiện tại"
+                title=esc("Hiệu Ứng & Bo Góc Cửa Sổ"),
+                description=esc("Thay đổi có hiệu lực ngay lập tức trên phiên Hyprland hiện tại")
             )
             row_round = Adw.ActionRow(
                 title=esc("Bo góc cửa sổ (Rounding)"),
@@ -321,7 +321,7 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
                 title="Nguồn điện & Pin",
                 icon_name="battery-symbolic"
             )
-            group_power_status = Adw.PreferencesGroup(title="Giám Sát Nguồn & Pin")
+            group_power_status = Adw.PreferencesGroup(title=esc("Giám Sát Nguồn & Pin"))
             power_st = self.power_mgr.get_status()
             self.row_bat = Adw.ActionRow(
                 title=esc("Dung lượng pin & Nguồn"),
