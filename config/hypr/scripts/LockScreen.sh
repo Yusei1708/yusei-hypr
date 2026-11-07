@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
-# /* ---- 💫 https://github.com/JaKooLit 💫 ---- */  ##
+# ==============================================================================
+# yusei-hypr: Lock Screen Trigger (LockScreen.sh)
+# Pre-refreshes weather in background and triggers loginctl lock-session / hyprlock
+# ==============================================================================
 
-# For Hyprlock
-#pidof hyprlock || hyprlock --grace 5 -q
+set -euo pipefail
 
-# Ensure weather cache is up-to-date before locking (Waybar/lockscreen readers)
-bash "$HOME/.config/hypr/UserScripts/WeatherWrap.sh" >/dev/null 2>&1
+# Refresh weather cache in background if script exists
+if [[ -f "$HOME/.config/hypr/UserScripts/WeatherWrap.sh" ]]; then
+    bash "$HOME/.config/hypr/UserScripts/WeatherWrap.sh" >/dev/null 2>&1 &
+fi
 
-loginctl lock-session
-
+# Lock session cleanly via systemd/loginctl with hyprlock fallback
+if ! loginctl lock-session 2>/dev/null; then
+    pidof hyprlock >/dev/null 2>&1 || hyprlock --grace 5 -q &
+fi

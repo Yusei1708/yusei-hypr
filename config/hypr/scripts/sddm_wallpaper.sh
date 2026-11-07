@@ -18,6 +18,10 @@ if [ ! -d "$sddm_themes_dir" ] && [ -d "/run/current-system/sw/share/sddm/themes
 fi
 sddm_simple="$sddm_themes_dir/simple_sddm_2"
 
+# Directory for swaync
+iDIR="$HOME/.config/swaync/images"
+iDIRi="$HOME/.config/swaync/icons"
+
 # rofi-wallust-sddm colors path
 rofi_wallust="$HOME/.config/rofi/wallust/colors-rofi.rasi"
 sddm_theme_conf="$sddm_simple/theme.conf"
@@ -25,10 +29,10 @@ if [[ ! -f "$rofi_wallust" ]]; then
     notify-send -i "$iDIR/error.png" "SDDM" "Wallust colors file not found ($rofi_wallust). Aborting."
     exit 1
 fi
-
-# Directory for swaync
-iDIR="$HOME/.config/swaync/images"
-iDIRi="$HOME/.config/swaync/icons"
+if [[ ! -f "$sddm_theme_conf" ]]; then
+    notify-send -i "$iDIR/error.png" "SDDM" "SDDM theme config not found ($sddm_theme_conf). Aborting."
+    exit 1
+fi
 
 # Parse arguments
 mode="effects" # default

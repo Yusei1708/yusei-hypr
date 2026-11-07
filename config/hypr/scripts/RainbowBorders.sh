@@ -93,7 +93,10 @@ function get_color() {
 }
 
 # border effect for ACTIVE window
-hyprctl keyword general:col.active_border $(get_color 0) $(get_color 1) $(get_color 2) $(get_color 3) $(get_color 4) $(get_color 5) $(get_color 6) $(get_color 7) $(get_color 8) $(get_color 9) 270deg
+BORDER_STR="$(get_color 0) $(get_color 1) $(get_color 2) $(get_color 3) $(get_color 4) $(get_color 5) $(get_color 6) $(get_color 7) $(get_color 8) $(get_color 9) 270deg"
+if ! hyprctl eval "hl.config({ general = { col = { active_border = '${BORDER_STR}' } } })" >/dev/null 2>&1; then
+    hyprctl keyword general:col.active_border ${BORDER_STR} >/dev/null 2>&1 || true
+fi
 
 # border effect for INACTIVE windows
 #hyprctl keyword general:col.inactive_border $(get_color 0) $(get_color 1) $(get_color 2) $(get_color 3) $(get_color 4) $(get_color 5) $(get_color 6) $(get_color 7) $(get_color 8) $(get_color 9) 270deg

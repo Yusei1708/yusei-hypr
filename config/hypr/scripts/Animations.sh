@@ -22,10 +22,13 @@ chosen_file=$(echo "$animations_list" | rofi -i -dmenu -config $rofi_theme -mesg
 
 # Check if a file was selected
 if [[ -n "$chosen_file" ]]; then
-    full_path="$animations_dir/$chosen_file.conf"    
-    cp "$full_path" "$UserConfigs/UserAnimations.conf"    
+    full_path="$animations_dir/$chosen_file.conf"
+    mkdir -p "$UserConfigs"
+    cp "$full_path" "$UserConfigs/UserAnimations.conf"
+    echo "source = ./animations/$chosen_file.conf" > "$HOME/.config/hypr/animations.conf"
+    hyprctl reload config-only >/dev/null 2>&1 || true
     notify-send -u low -i "$iDIR/ja.png" "$chosen_file" "Hyprland Animation Loaded"
 fi
 
-sleep 1
+sleep 0.5
 "$SCRIPTSDIR/RefreshNoWaybar.sh"

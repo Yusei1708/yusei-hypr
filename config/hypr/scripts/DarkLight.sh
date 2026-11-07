@@ -34,10 +34,11 @@ qt5ct_light="$HOME/.config/qt5ct/colors/Catppuccin-Latte.conf"
 qt6ct_dark="$HOME/.config/qt6ct/colors/Catppuccin-Mocha.conf"
 qt6ct_light="$HOME/.config/qt6ct/colors/Catppuccin-Latte.conf"
 
-# intial kill process
-for pid in waybar rofi swaync ags swaybg; do
-    killall -SIGUSR1 "$pid"
+# initial reload signal
+for pid in waybar ags; do
+    killall -SIGUSR1 "$pid" 2>/dev/null || true
 done
+swaync-client --reload-css 2>/dev/null || true
 
 
 # Initialize swww if needed
@@ -143,13 +144,19 @@ done
 
 # Set Dynamic Wallpaper for Dark or Light Mode
 if [ "$next_mode" = "Dark" ]; then
-    next_wallpaper="$(find -L "${dark_wallpapers}" -type f \( -iname "*.jpg" -o -iname "*.png" \) -print0 | shuf -n1 -z | xargs -0)"
+    next_wallpaper="$(find -L "${dark_wallpapers}" -type f \( -iname "*.jpg" -o -iname "*.png" \) -print0 2>/dev/null | shuf -n1 -z | xargs -0 2>/dev/null || true)"
 else
-    next_wallpaper="$(find -L "${light_wallpapers}" -type f \( -iname "*.jpg" -o -iname "*.png" \) -print0 | shuf -n1 -z | xargs -0)"
+    next_wallpaper="$(find -L "${light_wallpapers}" -type f \( -iname "*.jpg" -o -iname "*.png" \) -print0 2>/dev/null | shuf -n1 -z | xargs -0 2>/dev/null || true)"
 fi
 
-# Update wallpaper using swww command
-$swww "${next_wallpaper}" $effect
+if [[ -z "$next_wallpaper" || ! -f "$next_wallpaper" ]]; then
+    next_wallpaper="$(find -L "${PICTURES_DIR}/wallpapers" -maxdepth 2 -type f \( -iname "*.jpg" -o -iname "*.png" \) -print0 2>/dev/null | shuf -n1 -z | xargs -0 2>/dev/null || true)"
+fi
+
+# Update wallpaper using swww command if wallpaper found
+if [[ -n "$next_wallpaper" && -f "$next_wallpaper" ]]; then
+    $swww "${next_wallpaper}" $effect
+fi
 
 
 # Set Kvantum Manager theme & QT5/QT6 settings

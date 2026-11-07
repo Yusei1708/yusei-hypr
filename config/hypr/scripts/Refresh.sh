@@ -1,62 +1,44 @@
 #!/usr/bin/env bash
-# /* ---- 💫 https://github.com/JaKooLit 💫 ---- */  ##
-# Scripts for refreshing ags, waybar, rofi, swaync, wallust
+# ==============================================================================
+# yusei-hypr: Refresh Desktop UI Components (Refresh.sh)
+# Refreshes Waybar, SwayNC, Rofi, and Quickshell Desktop Overview cleanly
+# ==============================================================================
+
+set -euo pipefail
 
 SCRIPTSDIR=$HOME/.config/hypr/scripts
 UserScripts=$HOME/.config/hypr/UserScripts
 
-# Define file_exists function
-file_exists() {
-  if [ -e "$1" ]; then
-    return 0 # File exists
-  else
-    return 1 # File does not exist
-  fi
-}
-
-# Kill already running processes
-_ps=(waybar rofi swaync ags)
+# Kill already running UI processes
+_ps=(waybar rofi swaync ags cava)
 for _prs in "${_ps[@]}"; do
-  if pidof "${_prs}" >/dev/null; then
-    pkill "${_prs}"
-  fi
+    if pidof "${_prs}" >/dev/null 2>&1; then
+        pkill "${_prs}" 2>/dev/null || true
+    fi
 done
+pkill -f "WaybarCava.sh" 2>/dev/null || true
 
-# added since wallust sometimes not applying
-killall -SIGUSR2 waybar
-# Added sleep for GameMode causing multiple waybar
-sleep 0.1
-
-# quit ags & relaunch ags only if running
-if command -v ags >/dev/null 2>&1 && pidof ags >/dev/null; then
-  ags -q && ags &
+# Restart quickshell overview cleanly
+pkill qs 2>/dev/null || true
+if command -v qs >/dev/null 2>&1; then
+    qs -c overview >/dev/null 2>&1 &
 fi
 
-# quit quickshell & relaunch quickshell only if running
-if command -v qs >/dev/null 2>&1 && pidof qs >/dev/null; then
-  pkill qs && qs &
-fi
+# Reload Hyprland border colors, window rules & blur cache if running
+hyprctl reload >/dev/null 2>&1 || true
 
-# some process to kill
-for pid in $(pidof waybar rofi swaync ags swaybg); do
-  kill -SIGUSR1 "$pid"
-  sleep 0.1
-done
-
-#Restart waybar
+# Restart waybar
 sleep 0.1
-waybar &
+waybar >/dev/null 2>&1 &
 
-# relaunch swaync
-sleep 0.3
+# Restart swaync
+sleep 0.2
 swaync >/dev/null 2>&1 &
-# reload swaync
-swaync-client --reload-config
+swaync-client --reload-config 2>/dev/null || true
 
-# Relaunching rainbow borders if the script exists
-sleep 1
-if file_exists "${UserScripts}/RainbowBorders.sh"; then
-  ${UserScripts}/RainbowBorders.sh &
+# Relaunch rainbow borders if enabled
+if [[ -f "${UserScripts}/RainbowBorders.sh" ]]; then
+    "${UserScripts}/RainbowBorders.sh" &
 fi
 
 exit 0

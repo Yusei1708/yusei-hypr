@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # yusei-hypr: Dynamic Blur Intensity Switcher (ChangeBlur.sh)
-# Architecture: Hyprland IPC Keyword Controller | Dual-Kawase Optimization
+# Dual-Compatible: Hyprland 0.57+ Lua API (hl.config) & Legacy keyword fallback
 # ==============================================================================
 
 set -euo pipefail
@@ -14,15 +14,26 @@ fi
 
 notif="$HOME/.config/swaync/images"
 
-
-STATE=$(hyprctl -j getoption decoration:blur:passes | jq ".int")
-
-if [ "${STATE}" == "2" ]; then
-	hyprctl keyword decoration:blur:size 2
-	hyprctl keyword decoration:blur:passes 1
- 	notify-send -e -u low -i "$notif/note.png" " Less Blur"
-else
-	hyprctl keyword decoration:blur:size 5
-	hyprctl keyword decoration:blur:passes 2
-  	notify-send -e -u low -i "$notif/ja.png" " Normal Blur"
+state=$(hyprctl -j getoption decoration:blur:passes 2>/dev/null | jq -r '.int // empty' || true)
+if [[ -z "$state" || "$state" == "null" ]]; then
+    state=$(hyprctl getoption decoration:blur:passes 2>/dev/null | awk 'NR==1 {print $2}' || echo "2")
 fi
+
+if [[ "$state" == "2" ]]; then
+    size=2
+    passes=1
+    icon="$notif/note.png"
+    label="Less Blur"
+else
+    size=5
+    passes=2
+    icon="$notif/ja.png"
+    label="Normal Blur"
+fi
+
+if ! hyprctl eval "hl.config({ decoration = { blur = { size = $size, passes = $passes } } })" >/dev/null 2>&1; then
+    hyprctl keyword decoration:blur:size "$size" >/dev/null 2>&1 || true
+    hyprctl keyword decoration:blur:passes "$passes" >/dev/null 2>&1 || true
+fi
+
+notify-send -e -u low -i "$icon" "$label" 2>/dev/null || true
