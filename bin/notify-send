@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# yusei-hypr: Unified 3-Second Single-Slot notify-send Wrapper
+# Enforces a 3000ms (3s) popup timeout and a shared synchronous tag so any new
+# notification within 3 seconds immediately overwrites the previous popup.
+# ==============================================================================
+
+REAL_NOTIFY_SEND="/usr/bin/notify-send"
+if [[ ! -x "$REAL_NOTIFY_SEND" ]]; then
+    # Fallback search excluding ~/.local/bin
+    REAL_NOTIFY_SEND=$(PATH="/usr/local/bin:/usr/bin:/bin" command -v notify-send || true)
+fi
+
+if [[ -z "$REAL_NOTIFY_SEND" || ! -x "$REAL_NOTIFY_SEND" ]]; then
+    exit 0
+fi
+
+# Pass through --help or --version untouched
+for arg in "$@"; do
+    if [[ "$arg" == "-h" && $# -eq 1 ]] || [[ "$arg" == "--help" || "$arg" == "-v" || "$arg" == "--version" ]]; then
+        exec "$REAL_NOTIFY_SEND" "$@"
+    fi
+done
+
+new_args=()
+timeout_val=3000
+skip_next=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -t|--expire-time)
+            if [[ $# -ge 2 ]]; then
+                if [[ "$2" =~ ^[0-9]+$ ]] && (( $2 > 0 && $2 < 3000 )); then
+                    timeout_val="$2"
+                fi
+                shift 2
+                continue
+            fi
+            shift
+            ;;
+        --expire-time=*)
+            val="${1#*=}"
+            if [[ "$val" =~ ^[0-9]+$ ]] && (( val > 0 && val < 3000 )); then
+                timeout_val="$val"
+            fi
+            shift
+            ;;
+        -h|--hint)
+            if [[ $# -ge 2 ]]; then
+                hint_val="$2"
+                if [[ "$hint_val" == *synchronous* ]]; then
+                    shift 2
+                    continue
+                fi
+                new_args+=("$1" "$2")
+                shift 2
+                continue
+            fi
+            new_args+=("$1")
+            shift
+            ;;
+        --hint=*)
+            hint_val="${1#*=}"
+            if [[ "$hint_val" == *synchronous* ]]; then
+                shift
+                continue
+            fi
+            new_args+=("$1")
+            shift
+            ;;
+        *)
+            new_args+=("$1")
+            shift
+            ;;
+    esac
+done
+
+exec "$REAL_NOTIFY_SEND" \
+    -t "$timeout_val" \
+    -h "string:x-canonical-private-synchronous:yusei-popup" \
+    "${new_args[@]}"
