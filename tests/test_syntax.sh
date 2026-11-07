@@ -41,6 +41,7 @@ MANDATORY_V15_SCRIPTS=(
     "config/hypr/scripts/OcrGrab.sh"
     "config/hypr/scripts/SwayncSinglePopup.sh"
     "bin/notify-send"
+    "bin/waybar"
 )
 TOTAL_V15=${#MANDATORY_V15_SCRIPTS[@]}
 TOTAL_TESTS=$((TOTAL_SH + TOTAL_JSON + TOTAL_V15))
