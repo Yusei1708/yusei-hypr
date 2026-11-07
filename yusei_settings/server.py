@@ -30,6 +30,8 @@ class SettingsRequestHandler(BaseHTTPRequestHandler):
         self.safety_engine = SafetyEngine(self.target_home)
         self.power_mgr = PowerManager(self.workspace_root, self.target_home)
         keybinds_conf = Path(self.workspace_root) / "config" / "hypr" / "keybinds.conf"
+        if not keybinds_conf.exists() and (Path.home() / ".config" / "hypr" / "keybinds.conf").exists():
+            keybinds_conf = Path.home() / ".config" / "hypr" / "keybinds.conf"
         self.keybind_parser = KeybindParser(str(keybinds_conf))
         super().__init__(*args, **kwargs)
 
@@ -46,11 +48,18 @@ class SettingsRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def serve_file(self, file_path: Path):
-        # Path containment check: ensure target_file cannot escape workspace_root
+        # Path containment check: ensure target_file cannot escape workspace_root or home dirs
         try:
             resolved_root = Path(self.workspace_root).resolve()
             resolved_file = file_path.resolve()
-            if not resolved_file.is_relative_to(resolved_root):
+            home_dir = Path.home().resolve()
+            is_valid = (
+                resolved_file.is_relative_to(resolved_root)
+                or resolved_file.is_relative_to(home_dir / "Pictures")
+                or resolved_file.is_relative_to(home_dir / ".config")
+                or resolved_file.is_relative_to(home_dir / ".local" / "share" / "yusei-hypr")
+            )
+            if not is_valid:
                 self.send_error(403, "Access denied: Path traversal detected")
                 return
         except Exception:
@@ -91,6 +100,14 @@ class SettingsRequestHandler(BaseHTTPRequestHandler):
         if path.startswith("/assets/"):
             rel_path = path[len("/assets/"):].lstrip("/")
             target_file = Path(self.workspace_root) / "assets" / rel_path
+            if not target_file.exists():
+                user_wp = Path.home() / "Pictures" / rel_path
+                if user_wp.exists():
+                    target_file = user_wp
+                else:
+                    hypr_wp = Path.home() / ".config" / "hypr" / rel_path
+                    if hypr_wp.exists():
+                        target_file = hypr_wp
             return self.serve_file(target_file)
 
         # API: Catalog

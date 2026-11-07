@@ -19,8 +19,21 @@ class DiscoveryEngine:
             # Default to repo root (2 levels above core/)
             self.root = Path(__file__).resolve().parent.parent.parent
             
-        self.config_dir = self.root / "config"
-        self.assets_dir = self.root / "assets"
+        cand_config = self.root / "config"
+        if cand_config.exists() and (cand_config / "waybar").exists():
+            self.config_dir = cand_config
+        elif (Path.home() / ".config" / "waybar").exists():
+            self.config_dir = Path.home() / ".config"
+        else:
+            self.config_dir = cand_config
+
+        cand_assets = self.root / "assets"
+        if cand_assets.exists() and (cand_assets / "wallpapers").exists():
+            self.assets_dir = cand_assets
+        elif (Path.home() / ".local/share/yusei-hypr/assets").exists():
+            self.assets_dir = Path.home() / ".local/share/yusei-hypr/assets"
+        else:
+            self.assets_dir = cand_assets
         
         # Registry of extensible component scanners
         self._scanners = {
@@ -269,22 +282,33 @@ class DiscoveryEngine:
         return results
 
     def discover_wallpapers(self) -> List[Dict[str, Any]]:
-        """Scans assets/wallpapers/ for high-resolution backgrounds."""
-        wp_dir = self.assets_dir / "wallpapers"
-        results = []
-        if not wp_dir.exists():
-            return results
+        """Scans assets/wallpapers/ and user picture folders for high-resolution backgrounds."""
+        search_dirs = [self.assets_dir / "wallpapers"]
+        home_wp = Path.home() / "Pictures" / "wallpapers"
+        if home_wp.exists() and home_wp not in search_dirs:
+            search_dirs.append(home_wp)
+        hypr_wp = Path.home() / ".config" / "hypr" / "wallpapers"
+        if hypr_wp.exists() and hypr_wp not in search_dirs:
+            search_dirs.append(hypr_wp)
 
-        for path in sorted(wp_dir.iterdir()):
-            if path.is_file() and path.suffix.lower() in [".jpg", ".jpeg", ".png", ".webp"]:
-                name = path.stem
-                results.append({
-                    "id": name,
-                    "name": name.replace("-", " ").title(),
-                    "raw_name": path.name,
-                    "category": "wallpaper",
-                    "file_path": str(path),
-                    "relative_url": f"/assets/wallpapers/{path.name}",
-                    "description": f"Curated artistic wallpaper ({path.suffix[1:].upper()}).",
-                })
+        results = []
+        seen = set()
+        for wp_dir in search_dirs:
+            if not wp_dir.exists():
+                continue
+            for path in sorted(wp_dir.iterdir()):
+                if path.is_file() and path.suffix.lower() in [".jpg", ".jpeg", ".png", ".webp"]:
+                    if path.name in seen:
+                        continue
+                    seen.add(path.name)
+                    name = path.stem
+                    results.append({
+                        "id": name,
+                        "name": name.replace("-", " ").replace("_", " ").title(),
+                        "raw_name": path.name,
+                        "category": "wallpaper",
+                        "file_path": str(path),
+                        "relative_url": f"/assets/wallpapers/{path.name}",
+                        "description": f"Curated artistic wallpaper ({path.suffix[1:].upper()}).",
+                    })
         return results
