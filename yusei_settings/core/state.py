@@ -24,13 +24,15 @@ class StateManager:
 
     def get_active_state(self) -> Dict[str, Any]:
         """Returns the dictionary of currently active theme and layout IDs."""
+        active_wp = self.get_active_wallpaper()
         return {
             "waybar_layout": self.get_active_waybar_layout(),
             "waybar_style": self.get_active_waybar_style(),
             "rofi_theme": self.get_active_rofi_theme(),
             "kitty_theme": self.get_active_kitty_theme(),
             "hyprland_animation": self.get_active_hyprland_animation(),
-            "current_wallpaper": self.get_active_wallpaper(),
+            "current_wallpaper": active_wp,
+            "wallpaper": active_wp,
         }
 
     def get_active_waybar_layout(self) -> str:
@@ -102,10 +104,20 @@ class StateManager:
         return "00-default"
 
     def get_active_wallpaper(self) -> str:
-        cur = self.config_dir / "hypr" / ".current_wallpaper"
-        if cur.exists() and cur.is_symlink():
+        candidates = [
+            self.config_dir / "rofi" / ".current_wallpaper",
+            self.config_dir / "hypr" / ".current_wallpaper",
+        ]
+        for cur in candidates:
             try:
-                return cur.resolve().name
+                if cur.is_symlink():
+                    target_str = os.readlink(cur)
+                    if target_str:
+                        return Path(target_str).name
+                elif cur.exists() and cur.is_file():
+                    content = cur.read_text(encoding="utf-8", errors="ignore").strip()
+                    if content and "\n" not in content and len(content) < 512:
+                        return Path(content).name
             except Exception:
                 pass
         return "default.jpg"

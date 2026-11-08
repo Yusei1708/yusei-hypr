@@ -26,6 +26,7 @@ class SafetyEngine:
         self.config_dir = self.home / ".config"
         self.backups_dir = self.config_dir / "yusei-settings-backups"
         self.backups_dir.mkdir(parents=True, exist_ok=True)
+        self._active_wp_proc: Optional[subprocess.Popen] = None
 
     def analyze_impact(self, category: str, item_id: str, source_path: str) -> Dict[str, Any]:
         """
@@ -287,15 +288,31 @@ class SafetyEngine:
                     pass
             elif category == "wallpaper":
                 resolved_wp = str(Path(source_path).resolve())
+                rofi_link = self.config_dir / "rofi" / ".current_wallpaper"
+                try:
+                    rofi_link.parent.mkdir(parents=True, exist_ok=True)
+                    if rofi_link.exists() or rofi_link.is_symlink():
+                        rofi_link.unlink()
+                    rofi_link.symlink_to(resolved_wp)
+                except Exception:
+                    pass
+
+                if self._active_wp_proc and self._active_wp_proc.poll() is None:
+                    try:
+                        self._active_wp_proc.terminate()
+                    except Exception:
+                        pass
+
                 engine_script = str(Path(__file__).resolve().parent.parent.parent / "scripts" / "theme-engine.sh")
                 wallust_script = str(self.home / ".config/hypr/scripts/WallustSwww.sh")
                 try:
-                    subprocess.Popen(
+                    self._active_wp_proc = subprocess.Popen(
                         [
                             "bash", "-c",
-                            f'swww img "{resolved_wp}" --transition-type any --transition-fps 60 --transition-duration 1.0 >/dev/null 2>&1 || true; '
-                            f'[ -x "{wallust_script}" ] && "{wallust_script}" "{resolved_wp}" >/dev/null 2>&1 || true; '
-                            f'[ -x "{engine_script}" ] && "{engine_script}" "{resolved_wp}" >/dev/null 2>&1 || true'
+                            f'pgrep -x swww-daemon >/dev/null 2>&1 || (swww-daemon --format xrgb >/dev/null 2>&1 & sleep 0.2); '
+                            f'swww img "{resolved_wp}" --transition-type any --transition-fps 60 --transition-duration 1.2 --transition-bezier ".43,1.19,1,.4" >/dev/null 2>&1 || true; '
+                            f'if [ -x "{wallust_script}" ]; then "{wallust_script}" "{resolved_wp}" >/dev/null 2>&1 || true; '
+                            f'elif [ -x "{engine_script}" ]; then "{engine_script}" "{resolved_wp}" >/dev/null 2>&1 || true; fi'
                         ],
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
