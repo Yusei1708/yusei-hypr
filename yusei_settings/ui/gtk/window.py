@@ -57,10 +57,14 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
             self.searchable_rows: List[Tuple[Adw.ExpanderRow, Adw.ActionRow, str]] = []
             self.searchable_wp_cards: List[Tuple[Any, str]] = []
             self.wp_card_map: Dict[str, Tuple[Any, Any]] = {}
+            self.category_cards: Dict[str, Dict[str, Tuple[Any, Dict[str, Any]]]] = {}
+            self.category_expanders: Dict[str, Tuple[Any, str]] = {}
+            self.lazy_section_builders: List[Any] = []
             self.wp_group: Optional[Any] = None
             self.wp_expander: Optional[Any] = None
             self.wp_random_pic: Optional[Any] = None
             self.wallpapers_catalog: List[Dict[str, Any]] = []
+            self._syncing_hypr_state: bool = False
             self._thumb_cache_dir = Path.home() / ".cache" / "yusei-hypr" / "wall_thumbs"
             try:
                 self._thumb_cache_dir.mkdir(parents=True, exist_ok=True)
@@ -88,14 +92,14 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
             return rounding, blur_enabled
 
         def _apply_hypr_rounding(self, spin_btn, win):
+            if self._syncing_hypr_state:
+                return
             val = int(spin_btn.get_value())
             try:
-                subprocess.run(
+                subprocess.Popen(
                     ["hyprctl", "keyword", "decoration:rounding", str(val)],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
-                    check=False,
-                    timeout=2,
                 )
             except Exception:
                 pass
@@ -110,15 +114,15 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
                     pass
 
         def _apply_hypr_blur(self, switch_row, _pspec, win):
+            if self._syncing_hypr_state:
+                return
             active = switch_row.get_active()
             val_str = "true" if active else "false"
             try:
-                subprocess.run(
+                subprocess.Popen(
                     ["hyprctl", "keyword", "decoration:blur:enabled", val_str],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
-                    check=False,
-                    timeout=2,
                 )
             except Exception:
                 pass
@@ -203,6 +207,10 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
                 background-color: rgba(48, 50, 64, 0.95);
                 border-color: rgba(168, 199, 250, 0.45);
             }
+            .catalog-item-card-active {
+                background-color: rgba(40, 54, 78, 0.96);
+                border: 2px solid #a8c7fa;
+            }
             .catalog-item-title {
                 font-size: 13px;
                 font-weight: 700;
@@ -241,12 +249,15 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
             sub_txt: str,
             btn_label: str,
             on_click_cb,
-        ) -> Gtk.FlowBoxChild:
+            is_active: bool = False,
+        ) -> Tuple[Gtk.FlowBoxChild, Gtk.Box]:
             child = Gtk.FlowBoxChild()
             child.set_focusable(False)
 
             card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
             card.add_css_class("catalog-item-card")
+            if is_active:
+                card.add_css_class("catalog-item-card-active")
             card.set_hexpand(True)
 
             text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
@@ -279,7 +290,7 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
             card.append(btn)
             card.set_tooltip_text(f"{title_txt}\n{sub_txt}")
             child.set_child(card)
-            return child
+            return child, card
 
         def do_activate(self):
             existing_win = self.get_active_window()
@@ -291,11 +302,14 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
             win.set_default_size(1360, 820)
             win.set_search_enabled(True)
 
-            catalog = self.discovery.discover_all()
+            catalog = self.discovery.discover_all(fast_scan=True)
             active = self.state_mgr.get_active_state()
             self.searchable_rows.clear()
             self.searchable_wp_cards.clear()
             self.wp_card_map.clear()
+            self.category_cards.clear()
+            self.category_expanders.clear()
+            self.lazy_section_builders.clear()
 
             # -----------------------------------------------------------------
             # PAGE 1: Giao diện & Layout (Appearance)
@@ -319,11 +333,12 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
             group_filter.add(search_entry)
             page_appearance.add(group_filter)
 
-            # Helper to build full catalog expander sections in a 3-column grid without truncation
+            # Helper to build full catalog expander sections in a 3-column grid (lazy when collapsed)
             def build_catalog_section(
                 group_title: str,
                 expander_title: str,
                 expander_subtitle: str,
+                subtitle_suffix: str,
                 items: list,
                 category_key: str,
                 btn_label: str,
@@ -336,6 +351,8 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
                     subtitle=esc(expander_subtitle)
                 )
                 expander.set_expanded(expanded_by_default)
+                self.category_expanders[category_key] = (expander, subtitle_suffix)
+                self.category_cards[category_key] = {}
 
                 grid_row = Adw.PreferencesRow()
                 grid_row.set_activatable(False)
@@ -351,18 +368,39 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
                 flowbox.set_selection_mode(Gtk.SelectionMode.NONE)
                 flowbox.add_css_class("catalog-grid-box")
 
-                for item in items:
-                    sub_txt = subtitle_fn(item)
-                    child = self._create_3col_card_child(
-                        title_txt=item["name"],
-                        sub_txt=sub_txt,
-                        btn_label=btn_label,
-                        on_click_cb=lambda btn, ck=category_key, it=item: self.on_apply_clicked(btn, ck, it, win),
-                    )
-                    flowbox.append(child)
+                populated = {"done": False}
+                active_val = str(active.get(category_key, "")).strip().lower()
 
-                    search_blob = f"{item.get('name', '')} {item.get('raw_name', '')} {sub_txt}".lower()
-                    self.searchable_rows.append((expander, child, search_blob))
+                def populate_cards():
+                    if populated["done"]:
+                        return
+                    populated["done"] = True
+                    for item in items:
+                        sub_txt = subtitle_fn(item)
+                        raw_n = str(item.get("raw_name", "")).strip().lower()
+                        name_n = str(item.get("name", "")).strip().lower()
+                        id_n = str(item.get("id", "")).strip().lower()
+                        is_act = bool(active_val) and (active_val in (raw_n, name_n, id_n))
+                        child, card = self._create_3col_card_child(
+                            title_txt=item["name"],
+                            sub_txt=sub_txt,
+                            btn_label=btn_label,
+                            on_click_cb=lambda btn, ck=category_key, it=item: self.on_apply_clicked(btn, ck, it, win),
+                            is_active=is_act,
+                        )
+                        flowbox.append(child)
+                        self.category_cards[category_key][item["id"]] = (card, item)
+                        search_blob = f"{item.get('name', '')} {item.get('raw_name', '')} {sub_txt}".lower()
+                        self.searchable_rows.append((expander, child, search_blob))
+
+                if expanded_by_default:
+                    populate_cards()
+                else:
+                    self.lazy_section_builders.append(populate_cards)
+                    expander.connect(
+                        "notify::expanded",
+                        lambda exp, _pspec, fn=populate_cards: fn() if exp.get_expanded() else None,
+                    )
 
                 grid_row.set_child(flowbox)
                 expander.add_row(grid_row)
@@ -371,10 +409,12 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
 
             # 1. Waybar Layouts (Full list)
             waybar_layouts = catalog.get("waybar_layouts", [])
+            wb_layout_suffix = f"Nhấn để xem toàn bộ {len(waybar_layouts)} bố cục"
             build_catalog_section(
                 group_title="Thanh Trạng Thái Waybar (Layouts)",
                 expander_title="Danh sách Bố cục Waybar",
-                expander_subtitle=f"Đang dùng: {active.get('waybar_layout', 'Default')} • Nhấn để xem toàn bộ {len(waybar_layouts)} bố cục",
+                expander_subtitle=f"Đang dùng: {active.get('waybar_layout', 'Default')} • {wb_layout_suffix}",
+                subtitle_suffix=wb_layout_suffix,
                 items=waybar_layouts,
                 category_key="waybar_layout",
                 btn_label="Áp dụng",
@@ -384,10 +424,12 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
 
             # 2. Waybar Styles (Full list)
             waybar_styles = catalog.get("waybar_styles", [])
+            wb_style_suffix = f"Nhấn để xem toàn bộ {len(waybar_styles)} kiểu dáng"
             build_catalog_section(
                 group_title="Phong Cách Waybar CSS (Styles)",
                 expander_title="Danh sách Kiểu dáng CSS Waybar",
-                expander_subtitle=f"Đang dùng: {active.get('waybar_style', 'Default')} • Nhấn để xem toàn bộ {len(waybar_styles)} kiểu dáng",
+                expander_subtitle=f"Đang dùng: {active.get('waybar_style', 'Default')} • {wb_style_suffix}",
+                subtitle_suffix=wb_style_suffix,
                 items=waybar_styles,
                 category_key="waybar_style",
                 btn_label="Áp dụng",
@@ -407,10 +449,12 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
 
             # 4. Rofi Themes (Full list)
             rofi_themes = catalog.get("rofi_themes", [])
+            rofi_suffix = f"Nhấn để chọn trong {len(rofi_themes)} giao diện"
             build_catalog_section(
                 group_title="Giao Diện Menu Ứng Dụng Rofi (Themes)",
                 expander_title="Danh sách Giao diện Rofi Launcher",
-                expander_subtitle=f"Đang dùng: {active.get('rofi_theme', 'Default')} • Nhấn để chọn trong {len(rofi_themes)} giao diện",
+                expander_subtitle=f"Đang dùng: {active.get('rofi_theme', 'Default')} • {rofi_suffix}",
+                subtitle_suffix=rofi_suffix,
                 items=rofi_themes,
                 category_key="rofi_theme",
                 btn_label="Áp dụng",
@@ -420,10 +464,12 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
 
             # 5. Kitty Terminal Themes (Full list - 340+ themes)
             kitty_themes = catalog.get("kitty_themes", [])
+            kitty_suffix = f"Nhấn để chọn trong {len(kitty_themes)} bảng màu"
             build_catalog_section(
                 group_title="Bảng Màu Terminal Kitty (Themes)",
                 expander_title="Kho Bảng Màu Kitty Terminal",
-                expander_subtitle=f"Đang dùng: {active.get('kitty_theme', 'Default')} • Nhấn để chọn trong {len(kitty_themes)} bảng màu",
+                expander_subtitle=f"Đang dùng: {active.get('kitty_theme', 'Default')} • {kitty_suffix}",
+                subtitle_suffix=kitty_suffix,
                 items=kitty_themes,
                 category_key="kitty_theme",
                 btn_label="Áp dụng",
@@ -441,7 +487,6 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
                 title="Hyprland",
                 icon_name="preferences-system-windows-symbolic"
             )
-            cur_rounding, cur_blur = self._get_hypr_decoration_state()
 
             group_hypr = Adw.PreferencesGroup(
                 title=esc("Hiệu Ứng & Bo Góc Cửa Sổ"),
@@ -452,7 +497,7 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
                 subtitle=esc("Điều chỉnh bán kính bo tròn góc cửa sổ (0px - 30px)")
             )
             spin_round = Gtk.SpinButton.new_with_range(0, 30, 1)
-            spin_round.set_value(cur_rounding)
+            spin_round.set_value(16)
             spin_round.set_valign(Gtk.Align.CENTER)
             spin_round.connect("value-changed", self._apply_hypr_rounding, win)
             row_round.add_suffix(spin_round)
@@ -461,7 +506,7 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
             row_blur = Adw.SwitchRow(
                 title=esc("Làm mờ nền (Dual-pass Kawase Blur)"),
                 subtitle=esc("Hiệu ứng kính mờ trong suốt phía sau cửa sổ"),
-                active=cur_blur
+                active=True
             )
             row_blur.connect("notify::active", self._apply_hypr_blur, win)
             group_hypr.add(row_blur)
@@ -484,15 +529,23 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
                 selection_mode=Gtk.SelectionMode.NONE,
             )
             anim_flow.add_css_class("catalog-grid-box")
+            self.category_cards["hyprland_animation"] = {}
+            active_anim = str(active.get("hyprland_animation", "")).strip().lower()
             for item in anims:
                 sub_txt = f"{item.get('description', 'Đường cong bezier')} ({item.get('raw_name', '')})"
-                child_a = self._create_3col_card_child(
+                raw_n = str(item.get("raw_name", "")).strip().lower()
+                name_n = str(item.get("name", "")).strip().lower()
+                id_n = str(item.get("id", "")).strip().lower()
+                is_act = bool(active_anim) and (active_anim in (raw_n, name_n, id_n))
+                child_a, card_a = self._create_3col_card_child(
                     title_txt=item["name"],
                     sub_txt=sub_txt,
                     btn_label="Kích hoạt",
                     on_click_cb=lambda btn, it=item: self.on_apply_clicked(btn, "hyprland_animation", it, win),
+                    is_active=is_act,
                 )
                 anim_flow.append(child_a)
+                self.category_cards["hyprland_animation"][item["id"]] = (card_a, item)
             anim_row.set_child(anim_flow)
             group_anim.add(anim_row)
             page_hyprland.add(group_anim)
@@ -508,16 +561,15 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
                 icon_name="battery-symbolic"
             )
             group_power_status = Adw.PreferencesGroup(title=esc("Giám Sát Nguồn & Pin"))
-            power_st = self.power_mgr.get_status()
             self.row_bat = Adw.ActionRow(
                 title=esc("Dung lượng pin & Nguồn"),
-                subtitle=esc(f"{power_st.get('battery_percent', 100)}% ({power_st.get('battery_status', 'AC Only')}) • {'Cắm sạc AC' if power_st.get('ac_online') else 'Dùng pin'} • Profile: {power_st.get('profile', 'balanced').upper()}")
+                subtitle=esc("Đang kiểm tra trạng thái nguồn điện & pin...")
             )
             group_power_status.add(self.row_bat)
 
             self.row_rate = Adw.ActionRow(
                 title=esc("Màn hình & Tần số quét"),
-                subtitle=esc(f"{power_st.get('monitor_name', 'Display')} • {power_st.get('current_hz', 60)} Hz (Tối đa: {power_st.get('max_hz', 60)} Hz)")
+                subtitle=esc("Đang kiểm tra tần số quét màn hình...")
             )
             group_power_status.add(self.row_rate)
             page_power.add(group_power_status)
@@ -534,18 +586,21 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
                 selection_mode=Gtk.SelectionMode.NONE,
             )
             prof_flow.add_css_class("catalog-grid-box")
+            self.category_cards["power_profile"] = {}
             for p_id, p_name, p_desc in [
                 ("eco", "Tiết kiệm điện (Eco)", "Hạ xung nhịp CPU, giảm màn hình về 60Hz"),
                 ("balanced", "Cân bằng (Balanced)", "Tự động cân bằng hiệu năng và tiêu thụ điện"),
                 ("turbo", "Hiệu năng tối đa (Turbo)", "Xung nhịp CPU tối đa, tần số quét cao nhất")
             ]:
-                child_p = self._create_3col_card_child(
+                child_p, card_p = self._create_3col_card_child(
                     title_txt=p_name,
                     sub_txt=p_desc,
                     btn_label="Kích hoạt",
                     on_click_cb=lambda btn, pid=p_id, pname=p_name: self.on_power_profile_clicked(btn, pid, pname, win),
+                    is_active=False,
                 )
                 prof_flow.append(child_p)
+                self.category_cards["power_profile"][p_id] = (card_p, {"id": p_id, "name": p_name})
             prof_row.set_child(prof_flow)
             group_profiles.add(prof_row)
             page_power.add(group_profiles)
@@ -554,7 +609,7 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
             row_auto_60hz = Adw.SwitchRow(
                 title=esc("Tự động hạ màn hình xuống 60Hz khi rút sạc"),
                 subtitle=esc("Khôi phục tần số quét cao khi cắm sạc"),
-                active=power_st.get("auto_60hz", True)
+                active=True
             )
             row_auto_60hz.connect("notify::active", lambda w, p: self.power_mgr.set_config(w.get_active()))
             group_power_cfg.add(row_auto_60hz)
@@ -606,7 +661,7 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
                 ("Bảng Phím Tắt Hệ Thống (KeyHints)", "Xem danh sách toàn bộ phím tắt trên yusei-hypr", "~/.config/hypr/scripts/KeyHints.sh"),
             ]
             for t_title, t_sub, t_cmd in quick_tools:
-                child_t = self._create_3col_card_child(
+                child_t, _card_t = self._create_3col_card_child(
                     title_txt=t_title,
                     sub_txt=t_sub,
                     btn_label="Chạy",
@@ -619,23 +674,27 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
             self._widen_page_clamp(page_apps)
             win.add(page_apps)
 
-            # -----------------------------------------------------------------
-            # PAGE 5: Sao lưu & Khôi phục (Backup & Restore)
-            # -----------------------------------------------------------------
-            page_backup = Adw.PreferencesPage(
-                title="Sao lưu & Khôi phục",
-                icon_name="drive-harddisk-symbolic"
-            )
-            self.group_backup = Adw.PreferencesGroup(
-                title="Lịch Sử Snapshots An Toàn",
-                description="Mỗi khi áp dụng cấu hình mới, một bản sao lưu tự động được tạo tại đây"
-            )
-            self._populate_snapshots(win)
-            page_backup.add(self.group_backup)
-            self._widen_page_clamp(page_backup)
-            win.add(page_backup)
-
             win.present()
+
+            # Populate live Hyprland & Power state asynchronously off the GTK main thread
+            def _load_live_state_bg():
+                cur_rounding, cur_blur = self._get_hypr_decoration_state()
+                power_st = self.power_mgr.get_status()
+
+                def _apply_live_state():
+                    self._syncing_hypr_state = True
+                    try:
+                        spin_round.set_value(cur_rounding)
+                        row_blur.set_active(cur_blur)
+                        row_auto_60hz.set_active(power_st.get("auto_60hz", True))
+                    finally:
+                        self._syncing_hypr_state = False
+                    self._apply_power_status_to_ui(power_st)
+                    return GLib.SOURCE_REMOVE
+
+                GLib.idle_add(_apply_live_state)
+
+            threading.Thread(target=_load_live_state_bg, daemon=True).start()
 
         def _build_wallpaper_grid_section(
             self,
@@ -819,19 +878,26 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
             except Exception:
                 return None
 
-        def _set_picture_pixbuf(self, pic_widget: Gtk.Picture, pixbuf: Any) -> bool:
-            try:
-                texture = Gdk.Texture.new_for_pixbuf(pixbuf)
-                pic_widget.set_paintable(texture)
-            except Exception:
-                pass
+        def _apply_pixbuf_batch(self, batch: List[Tuple[Gtk.Picture, Any]]) -> bool:
+            for pic_widget, pixbuf in batch:
+                try:
+                    texture = Gdk.Texture.new_for_pixbuf(pixbuf)
+                    pic_widget.set_paintable(texture)
+                except Exception:
+                    pass
             return GLib.SOURCE_REMOVE
 
         def _load_thumbnails_async(self, tasks: List[Tuple[Gtk.Picture, str]]):
+            batch: List[Tuple[Gtk.Picture, Any]] = []
             for pic_widget, file_path in tasks:
                 pixbuf = self._get_or_create_thumb_pixbuf(file_path)
                 if pixbuf is not None:
-                    GLib.idle_add(self._set_picture_pixbuf, pic_widget, pixbuf)
+                    batch.append((pic_widget, pixbuf))
+                    if len(batch) >= 16:
+                        GLib.idle_add(self._apply_pixbuf_batch, batch)
+                        batch = []
+            if batch:
+                GLib.idle_add(self._apply_pixbuf_batch, batch)
 
         def _update_active_wallpaper_ui(self, active_raw_name: str):
             if self.wp_expander is not None:
@@ -845,6 +911,18 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
                 else:
                     btn.remove_css_class("wallpaper-card-active")
                     lbl.remove_css_class("wallpaper-label-active")
+
+        def _update_active_category_ui(self, category: str, active_id: str, display_name: str):
+            cards_map = self.category_cards.get(category, {})
+            for cid, (card_widget, _it) in cards_map.items():
+                if cid == active_id:
+                    card_widget.add_css_class("catalog-item-card-active")
+                else:
+                    card_widget.remove_css_class("catalog-item-card-active")
+            exp_info = self.category_expanders.get(category)
+            if exp_info is not None:
+                expander, suffix = exp_info
+                expander.set_subtitle(esc(f"Đang dùng: {display_name} • {suffix}"))
 
         def on_random_wallpaper_clicked(self, _button, parent_window):
             if not self.wallpapers_catalog:
@@ -860,42 +938,24 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
             self.on_wallpaper_card_clicked(None, chosen, parent_window)
 
         def on_wallpaper_card_clicked(self, _button, item: Dict[str, Any], parent_window):
-            res = self.safety.apply_change("wallpaper", item["id"], item["file_path"], confirmed=True)
+            self.safety.apply_change(
+                "wallpaper",
+                item["id"],
+                item["file_path"],
+                confirmed=True,
+                skip_snapshot=True,
+            )
             raw_name = item.get("raw_name", item["name"])
             self._update_active_wallpaper_ui(raw_name)
             toast = Adw.Toast(title=f"Đã đặt hình nền: {raw_name}")
-            toast.set_timeout(3)
-            toast.set_button_label("Hoàn tác")
-            toast.connect(
-                "button-clicked",
-                lambda _t: self.on_rollback_clicked(res.get("snapshot_id"), parent_window, "wallpaper"),
-            )
+            toast.set_timeout(2)
             parent_window.add_toast(toast)
-
-        def _populate_snapshots(self, win):
-            snaps = self.safety.list_snapshots()
-            if snaps:
-                for s in snaps:
-                    sid = s.get("snapshot_id", "")
-                    row_s = Adw.ActionRow(
-                        title=esc(sid),
-                        subtitle=esc(f"Thời gian: {s.get('created_at', '')} • {len(s.get('backed_up_files', []))} tệp")
-                    )
-                    btn_r = Gtk.Button(label="Khôi phục")
-                    btn_r.set_valign(Gtk.Align.CENTER)
-                    btn_r.connect("clicked", lambda b, snap_id=sid: self.on_rollback_clicked(snap_id, win))
-                    row_s.add_suffix(btn_r)
-                    self.group_backup.add(row_s)
-            else:
-                self.group_backup.add(
-                    Adw.ActionRow(
-                        title=esc("Chưa có bản snapshot nào"),
-                        subtitle=esc("Snapshot tự động tạo khi bấm Áp dụng bất kỳ mục nào")
-                    )
-                )
 
         def on_filter_changed(self, search_entry):
             query = search_entry.get_text().strip().lower()
+            if query:
+                for builder_fn in self.lazy_section_builders:
+                    builder_fn()
             expander_matches = {}
             for expander, row, blob in self.searchable_rows:
                 matched = (not query) or (query in blob)
@@ -923,82 +983,59 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
                 if query and has_wp:
                     self.wp_expander.set_expanded(True)
 
-        def _refresh_power_labels(self):
-            st = self.power_mgr.get_status()
+        def _apply_power_status_to_ui(self, st: Dict[str, Any]):
+            prof = str(st.get("profile", "balanced")).lower()
             self.row_bat.set_subtitle(
-                esc(f"{st.get('battery_percent', 100)}% ({st.get('battery_status', 'AC Only')}) • {'Cắm sạc AC' if st.get('ac_online') else 'Dùng pin'} • Profile: {st.get('profile', 'balanced').upper()}")
+                esc(f"{st.get('battery_percent', 100)}% ({st.get('battery_status', 'AC Only')}) • {'Cắm sạc AC' if st.get('ac_online') else 'Dùng pin'} • Profile: {prof.upper()}")
             )
             self.row_rate.set_subtitle(
                 esc(f"{st.get('monitor_name', 'Display')} • {st.get('current_hz', 60)} Hz (Tối đa: {st.get('max_hz', 60)} Hz)")
             )
+            self._update_active_category_ui("power_profile", prof, prof)
+
+        def _refresh_power_labels_async(self):
+            def _worker():
+                st = self.power_mgr.get_status()
+                GLib.idle_add(lambda: (self._apply_power_status_to_ui(st), GLib.SOURCE_REMOVE)[1])
+            threading.Thread(target=_worker, daemon=True).start()
 
         def on_power_profile_clicked(self, _button, profile_id: str, profile_name: str, win):
-            self.power_mgr.set_profile(profile_id)
-            self._refresh_power_labels()
+            self._update_active_category_ui("power_profile", profile_id, profile_name)
             toast = Adw.Toast(title=f"Đã chuyển sang chế độ: {profile_name}")
             toast.set_timeout(2)
             win.add_toast(toast)
 
+            def _worker():
+                self.power_mgr.set_profile(profile_id)
+                st = self.power_mgr.get_status()
+                GLib.idle_add(lambda: (self._apply_power_status_to_ui(st), GLib.SOURCE_REMOVE)[1])
+
+            threading.Thread(target=_worker, daemon=True).start()
+
         def on_toggle_hz_clicked(self, _button, win):
-            self.power_mgr.toggle_hz()
-            self._refresh_power_labels()
             toast = Adw.Toast(title="Đã chuyển đổi tần số quét màn hình!")
             toast.set_timeout(2)
             win.add_toast(toast)
 
+            def _worker():
+                self.power_mgr.toggle_hz()
+                st = self.power_mgr.get_status()
+                GLib.idle_add(lambda: (self._apply_power_status_to_ui(st), GLib.SOURCE_REMOVE)[1])
+
+            threading.Thread(target=_worker, daemon=True).start()
+
         def on_apply_clicked(self, button, category, item, parent_window):
-            res = self.safety.apply_change(category, item["id"], item["file_path"], confirmed=True)
+            self.safety.apply_change(
+                category,
+                item["id"],
+                item["file_path"],
+                confirmed=True,
+                skip_snapshot=True,
+            )
+            display_name = item.get("raw_name", item.get("name", ""))
+            self._update_active_category_ui(category, item["id"], display_name)
             toast = Adw.Toast(title=f"Đã áp dụng: {item['name']}")
-            toast.set_timeout(3)
-            toast.set_button_label("Hoàn tác")
-            toast.connect("button-clicked", lambda _t: self.on_rollback_clicked(res.get("snapshot_id"), parent_window, category))
-            parent_window.add_toast(toast)
-
-        def on_rollback_clicked(self, snapshot_id, parent_window, category: Optional[str] = None):
-            self.safety.rollback(snapshot_id)
-            if category in ("waybar_layout", "waybar_style", None):
-                subprocess.Popen(
-                    ["bash", "-c", "pkill -SIGUSR2 waybar 2>/dev/null || nohup waybar >/dev/null 2>&1 &"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-            if category in ("kitty_theme", None):
-                subprocess.run(["pkill", "-SIGUSR1", "kitty"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-            if category in ("hyprland_animation", None):
-                subprocess.run(["hyprctl", "reload", "config-only"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-            if category in ("wallpaper", None):
-                restored_wp_file = self.safety.config_dir / "hypr" / "wallpaper.jpg"
-                cur_sym = self.safety.config_dir / "hypr" / ".current_wallpaper"
-                target_wp = None
-                if cur_sym.is_symlink():
-                    try:
-                        target_wp = str(cur_sym.resolve())
-                    except Exception:
-                        pass
-                if not target_wp and restored_wp_file.exists():
-                    target_wp = str(restored_wp_file.resolve())
-                if target_wp:
-                    rofi_link = self.safety.config_dir / "rofi" / ".current_wallpaper"
-                    try:
-                        if rofi_link.exists() or rofi_link.is_symlink():
-                            rofi_link.unlink()
-                        rofi_link.symlink_to(target_wp)
-                    except Exception:
-                        pass
-                    wallust_script = str(self.safety.home / ".config/hypr/scripts/WallustSwww.sh")
-                    subprocess.Popen(
-                        [
-                            "bash", "-c",
-                            f'swww img "{target_wp}" --transition-type any --transition-fps 60 --transition-duration 1.0 >/dev/null 2>&1 || true; '
-                            f'[ -x "{wallust_script}" ] && "{wallust_script}" "{target_wp}" >/dev/null 2>&1 || true'
-                        ],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                    )
-                    self._update_active_wallpaper_ui(Path(target_wp).name)
-
-            toast = Adw.Toast(title=f"Đã hoàn tác về bản sao lưu {snapshot_id}!")
-            toast.set_timeout(3)
+            toast.set_timeout(2)
             parent_window.add_toast(toast)
 
     app = YuseiSettingsApp()
