@@ -5,6 +5,8 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
@@ -59,7 +61,7 @@ else
     echo -e "${GREEN}✓ Không có xung đột âm thanh PulseAudio.${NC}"
 fi
 
-# 2b. Xử lý xung đột awww vs swww (Arch Linux đổi swww -> awww làm mất daemon swww)
+# 2b. Xử lý xung đột awww vs swww và cài đặt swww cố định đi kèm trong yusei-hypr
 if pacman -Qi awww &> /dev/null; then
     echo -e "${YELLOW}:: Phát hiện gói 'awww' gây xung đột với swww. Đang gỡ bỏ awww...${NC}"
     sudo pacman -Rdd --noconfirm awww || true
@@ -67,14 +69,15 @@ fi
 if ! grep -Eq '^IgnorePkg\s*=.*swww' /etc/pacman.conf 2>/dev/null; then
     sudo sed -i 's/^#*\s*IgnorePkg\s*=.*/IgnorePkg = swww awww/' /etc/pacman.conf 2>/dev/null || true
 fi
-if [[ -f "$HOME/App/swww/swww-0.9.5-1-x86_64.pkg.tar.zst" ]] && ! pacman -Qi swww &> /dev/null; then
-    echo -e "${BLUE}:: Cài đặt gói swww (0.9.5) từ $HOME/App/swww/...${NC}"
-    sudo pacman -U --noconfirm "$HOME/App/swww/swww-0.9.5-1-x86_64.pkg.tar.zst" || true
+BUNDLED_SWWW_PKG="$SCRIPT_DIR/assets/packages/swww-0.9.5-1-x86_64.pkg.tar.zst"
+if [[ -f "$BUNDLED_SWWW_PKG" ]] && ! pacman -Qi swww &> /dev/null; then
+    echo -e "${BLUE}:: Cài đặt gói swww (0.9.5) đi kèm trong yusei-hypr...${NC}"
+    sudo pacman -U --noconfirm "$BUNDLED_SWWW_PKG" || true
 fi
-if [[ -d "$HOME/App/swww/pkg/swww/usr/bin" ]]; then
+if [[ -x "$SCRIPT_DIR/bin/swww" && -x "$SCRIPT_DIR/bin/swww-daemon" ]]; then
     mkdir -p "$HOME/.local/bin"
-    cp -f "$HOME/App/swww/pkg/swww/usr/bin/swww" "$HOME/.local/bin/swww"
-    cp -f "$HOME/App/swww/pkg/swww/usr/bin/swww-daemon" "$HOME/.local/bin/swww-daemon"
+    cp -f "$SCRIPT_DIR/bin/swww" "$HOME/.local/bin/swww"
+    cp -f "$SCRIPT_DIR/bin/swww-daemon" "$HOME/.local/bin/swww-daemon"
     chmod +x "$HOME/.local/bin/swww" "$HOME/.local/bin/swww-daemon"
 fi
 

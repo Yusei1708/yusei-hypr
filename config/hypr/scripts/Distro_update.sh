@@ -20,21 +20,23 @@ if command -v paru &> /dev/null || command -v yay &> /dev/null; then
     AUR_CMD="paru"
   fi
   kitty -T update -e bash -c "
+    SWWW_PKG=\"\$HOME/.local/share/yusei-hypr/packages/swww-0.9.5-1-x86_64.pkg.tar.zst\"
+    SWWW_BIN_DIR=\"\$HOME/.local/share/yusei-hypr/bin\"
     if pacman -Qi awww >/dev/null 2>&1; then
-      echo ':: Removing conflicting awww package and locking swww...'
+      echo ':: Removing conflicting awww package and locking bundled swww...'
       sudo pacman -Rdd --noconfirm awww || true
-      if [ -f \"\$HOME/App/swww/swww-0.9.5-1-x86_64.pkg.tar.zst\" ]; then
-        sudo pacman -U --noconfirm \"\$HOME/App/swww/swww-0.9.5-1-x86_64.pkg.tar.zst\" || true
+      if [ -f \"\$SWWW_PKG\" ]; then
+        sudo pacman -U --noconfirm \"\$SWWW_PKG\" || true
       fi
     fi
     if ! grep -Eq '^IgnorePkg\s*=.*swww' /etc/pacman.conf 2>/dev/null; then
       sudo sed -i 's/^#*\s*IgnorePkg\s*=.*/IgnorePkg = swww awww/' /etc/pacman.conf 2>/dev/null || true
     fi
     $AUR_CMD -Syu --ignore swww,awww
-    if [ -d \"\$HOME/App/swww/pkg/swww/usr/bin\" ]; then
+    if [ -x \"\$SWWW_BIN_DIR/swww\" ] && [ -x \"\$SWWW_BIN_DIR/swww-daemon\" ]; then
       mkdir -p \"\$HOME/.local/bin\"
-      cp -f \"\$HOME/App/swww/pkg/swww/usr/bin/swww\" \"\$HOME/.local/bin/swww\"
-      cp -f \"\$HOME/App/swww/pkg/swww/usr/bin/swww-daemon\" \"\$HOME/.local/bin/swww-daemon\"
+      cp -f \"\$SWWW_BIN_DIR/swww\" \"\$HOME/.local/bin/swww\"
+      cp -f \"\$SWWW_BIN_DIR/swww-daemon\" \"\$HOME/.local/bin/swww-daemon\"
       chmod +x \"\$HOME/.local/bin/swww\" \"\$HOME/.local/bin/swww-daemon\"
     fi
     if ! pgrep -x swww-daemon >/dev/null 2>&1; then

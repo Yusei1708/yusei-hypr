@@ -38,7 +38,7 @@ if [[ -d "$REAL_HOME/.config" ]]; then
     REAL_CONFIG_MTIME="$(stat -c %Y "$REAL_HOME/.config" 2>/dev/null || true)"
 fi
 
-TOTAL_TESTS=12
+TOTAL_TESTS=13
 echo "1..${TOTAL_TESTS}"
 
 TEST_INDEX=0
@@ -119,6 +119,9 @@ bash "$REPO_ROOT/scripts/04-install-configs.sh" >/dev/null 2>&1 || true
 
 assert_check "04-install-configs.sh creates userprefs.conf from template on clean install" \
     "[ -f '$MOCK_HOME_FRESH/.config/hypr/userprefs.conf' ] && grep -qi 'yusei-hypr: User Custom Preferences' '$MOCK_HOME_FRESH/.config/hypr/userprefs.conf'"
+
+assert_check "04-install-configs.sh installs bundled swww and swww-daemon into ~/.local/bin on clean install" \
+    "[ -x '$MOCK_HOME_FRESH/.local/bin/swww' ] && [ -x '$MOCK_HOME_FRESH/.local/bin/swww-daemon' ] && [ -f '$MOCK_HOME_FRESH/.local/share/yusei-hypr/packages/swww-0.9.5-1-x86_64.pkg.tar.zst' ]"
 
 rm -rf "$MOCK_HOME_FRESH"
 

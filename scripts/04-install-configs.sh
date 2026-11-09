@@ -163,14 +163,14 @@ if [[ -d "$SCRIPT_DIR/lib" ]]; then
     fi
 fi
 if [[ -d "$SCRIPT_DIR/bin" ]]; then
-    mkdir -p "$HOME/.local/bin" "$HOME/.local/share/yusei-hypr"
+    mkdir -p "$HOME/.local/bin" "$HOME/.local/share/yusei-hypr/bin" "$HOME/.local/share/yusei-hypr/packages"
     cp -a "$SCRIPT_DIR/bin"/* "$HOME/.local/bin/" 2>/dev/null || true
-    if [[ -d "$HOME/App/swww/pkg/swww/usr/bin" ]]; then
-        cp -f "$HOME/App/swww/pkg/swww/usr/bin/swww" "$HOME/.local/bin/swww"
-        cp -f "$HOME/App/swww/pkg/swww/usr/bin/swww-daemon" "$HOME/.local/bin/swww-daemon"
-        echo -e "${GREEN}✓ Đã ghim cố định swww & swww-daemon (0.9.5) từ ~/App/swww vào ~/.local/bin${NC}"
+    cp -a "$SCRIPT_DIR/bin"/* "$HOME/.local/share/yusei-hypr/bin/" 2>/dev/null || true
+    chmod +x "$HOME/.local/bin"/* "$HOME/.local/share/yusei-hypr/bin"/* 2>/dev/null || true
+    if [[ -d "$SCRIPT_DIR/assets/packages" ]]; then
+        cp -a "$SCRIPT_DIR/assets/packages"/* "$HOME/.local/share/yusei-hypr/packages/" 2>/dev/null || true
     fi
-    chmod +x "$HOME/.local/bin"/* 2>/dev/null || true
+    echo -e "${GREEN}✓ Đã cài đặt cố định swww & swww-daemon (0.9.5) đi kèm yusei-hypr vào ~/.local/bin${NC}"
     if [[ -d "$SCRIPT_DIR/yusei_settings" ]]; then
         rm -rf "$HOME/.local/share/yusei-hypr/yusei_settings"
         cp -a "$SCRIPT_DIR/yusei_settings" "$HOME/.local/share/yusei-hypr/" 2>/dev/null || true
