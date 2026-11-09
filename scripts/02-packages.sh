@@ -92,10 +92,11 @@ PACKAGES=(
     polkit-gnome
 
     # Desktop Components (End-4 Material UI)
+    # Lưu ý: swww KHÔNG cài qua pacman/yay vì kho Arch sẽ ép tải awww (Replaces: swww);
+    # swww đã được cài trực tiếp từ bản đóng gói bên trong repo (assets/packages/ & bin/)
     waybar
     rofi-wayland
     swaync
-    swww
     kitty
 
     # Fonts & Icons & Cursors (Aesthetics Parity)
@@ -192,9 +193,6 @@ fi
 # 4. Lọc ra các gói chưa cài đặt để cài bổ sung
 TO_INSTALL=()
 for pkg in "${PACKAGES[@]}"; do
-    if [[ "$pkg" == "swww" ]] && [[ -x "$HOME/.local/bin/swww" || -x "/usr/bin/swww" ]]; then
-        continue
-    fi
     if ! pacman -Qi "$pkg" &> /dev/null; then
         TO_INSTALL+=("$pkg")
     fi
