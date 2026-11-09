@@ -49,14 +49,16 @@ class DiscoveryEngine:
         """Allows 3rd-party plugins or extensions to register new discovery domains."""
         self._scanners[category] = scanner_func
 
-    def discover_all(self) -> Dict[str, List[Dict[str, Any]]]:
+    def discover_all(self, fast_scan: bool = False) -> Dict[str, List[Dict[str, Any]]]:
         """Runs all registered discovery scanners and returns grouped catalog."""
+        self._fast_scan = fast_scan
         catalog = {}
         for category, scanner in self._scanners.items():
             try:
                 catalog[category] = scanner()
             except Exception as e:
                 catalog[category] = [{"id": "error", "name": f"Error scanning {category}: {e}"}]
+        self._fast_scan = False
         return catalog
 
     def discover_waybar_layouts(self) -> List[Dict[str, Any]]:
@@ -66,6 +68,7 @@ class DiscoveryEngine:
         if not layouts_dir.exists():
             return results
 
+        fast = getattr(self, "_fast_scan", False)
         for path in sorted(layouts_dir.iterdir()):
             if path.is_file() and not path.name.startswith("."):
                 name = path.name
@@ -83,19 +86,22 @@ class DiscoveryEngine:
 
                 is_end4 = "End-4" in name or "Material 3" in name
                 
-                # Extract modules if JSON format
-                modules_summary = []
-                try:
-                    content = path.read_text(encoding="utf-8", errors="ignore")
-                    # Strip C-style comments for simple parsing
-                    cleaned = re.sub(r'//.*', '', content)
-                    cleaned = re.sub(r'/\*.*?\*/', '', cleaned, flags=re.DOTALL)
-                    data = json.loads(cleaned)
-                    for key in ["modules-left", "modules-center", "modules-right"]:
-                        if key in data and isinstance(data[key], list):
-                            modules_summary.extend(data[key])
-                except Exception:
-                    modules_summary = ["workspaces", "clock", "audio", "battery", "network"]
+                # Extract modules if JSON format (skipped in fast_scan mode for instant GUI startup)
+                modules_summary = ["workspaces", "clock", "audio", "battery", "network"]
+                if not fast:
+                    try:
+                        content = path.read_text(encoding="utf-8", errors="ignore")
+                        cleaned = re.sub(r'//.*', '', content)
+                        cleaned = re.sub(r'/\*.*?\*/', '', cleaned, flags=re.DOTALL)
+                        data = json.loads(cleaned)
+                        extracted = []
+                        for key in ["modules-left", "modules-center", "modules-right"]:
+                            if key in data and isinstance(data[key], list):
+                                extracted.extend(data[key])
+                        if extracted:
+                            modules_summary = extracted
+                    except Exception:
+                        pass
 
                 results.append({
                     "id": name,
@@ -206,35 +212,37 @@ class DiscoveryEngine:
         if not themes_dir.exists():
             return results
 
-        color_regex = re.compile(r'^\s*(background|foreground|color[0-7])\s+([#0-9a-fA-F]{6,8})', re.IGNORECASE)
+        fast = getattr(self, "_fast_scan", False)
+        color_regex = None if fast else re.compile(r'^\s*(background|foreground|color[0-7])\s+([#0-9a-fA-F]{6,8})', re.IGNORECASE)
 
         for path in sorted(themes_dir.iterdir()):
             if path.is_file() and path.suffix == ".conf":
                 name = path.stem
                 is_wallust = "01-Wallust" in name
                 
-                # Extract color swatches
+                # Extract color swatches (skipped in fast_scan mode for instant GUI startup)
                 palette = {
                     "background": "#141316",
                     "foreground": "#e3e2e6",
                     "swatches": ["#1f1f23", "#f2b8b5", "#b4e09f", "#fce788", "#a8c7fa", "#d3bbff", "#99e7eb", "#e3e2e6"]
                 }
-                try:
-                    content = path.read_text(encoding="utf-8", errors="ignore")
-                    for line in content.splitlines():
-                        match = color_regex.match(line)
-                        if match:
-                            key, val = match.group(1).lower(), match.group(2)
-                            if key == "background":
-                                palette["background"] = val
-                            elif key == "foreground":
-                                palette["foreground"] = val
-                            elif key.startswith("color"):
-                                idx = int(key.replace("color", ""))
-                                if idx < len(palette["swatches"]):
-                                    palette["swatches"][idx] = val
-                except Exception:
-                    pass
+                if not fast and color_regex is not None:
+                    try:
+                        content = path.read_text(encoding="utf-8", errors="ignore")
+                        for line in content.splitlines():
+                            match = color_regex.match(line)
+                            if match:
+                                key, val = match.group(1).lower(), match.group(2)
+                                if key == "background":
+                                    palette["background"] = val
+                                elif key == "foreground":
+                                    palette["foreground"] = val
+                                elif key.startswith("color"):
+                                    idx = int(key.replace("color", ""))
+                                    if idx < len(palette["swatches"]):
+                                        palette["swatches"][idx] = val
+                    except Exception:
+                        pass
 
                 results.append({
                     "id": name,

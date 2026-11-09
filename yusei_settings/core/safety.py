@@ -25,7 +25,6 @@ class SafetyEngine:
 
         self.config_dir = self.home / ".config"
         self.backups_dir = self.config_dir / "yusei-settings-backups"
-        self.backups_dir.mkdir(parents=True, exist_ok=True)
         self._active_wp_proc: Optional[subprocess.Popen] = None
 
     def analyze_impact(self, category: str, item_id: str, source_path: str) -> Dict[str, Any]:
@@ -151,9 +150,16 @@ class SafetyEngine:
 
         return snapshot_id
 
-    def apply_change(self, category: str, item_id: str, source_path: str, confirmed: bool) -> Dict[str, Any]:
+    def apply_change(
+        self,
+        category: str,
+        item_id: str,
+        source_path: str,
+        confirmed: bool,
+        skip_snapshot: bool = False,
+    ) -> Dict[str, Any]:
         """
-        Stage 4 & 5: Requires confirmation, takes snapshot, then performs surgical update.
+        Stage 4 & 5: Requires confirmation, takes snapshot (unless skip_snapshot=True), then performs surgical update.
         """
         if not confirmed:
             raise PermissionError("Explicit user confirmation is mandatory before executing apply.")
@@ -161,8 +167,8 @@ class SafetyEngine:
         impact = self.analyze_impact(category, item_id, source_path)
         targets_to_backup = [f["target"] for f in impact["affected_files"]]
         
-        # 1. Create snapshot
-        snapshot_id = self.create_snapshot(targets_to_backup)
+        # 1. Create snapshot (skipped in live GUI mode to avoid disk bloat & I/O lag)
+        snapshot_id = None if skip_snapshot else self.create_snapshot(targets_to_backup)
 
         # 2. Execute surgical modifications
         for item in impact["affected_files"]:
@@ -199,9 +205,17 @@ class SafetyEngine:
                         target_p.symlink_to(rel)
 
             elif item["action"] == "copy":
-                if target_p.is_symlink():
-                    target_p.unlink()
-                shutil.copy2(source_p, target_p)
+                if skip_snapshot and category == "wallpaper":
+                    if target_p.exists() or target_p.is_symlink():
+                        target_p.unlink()
+                    try:
+                        target_p.symlink_to(source_p.resolve())
+                    except Exception:
+                        shutil.copy2(source_p, target_p)
+                else:
+                    if target_p.is_symlink():
+                        target_p.unlink()
+                    shutil.copy2(source_p, target_p)
 
             elif item["action"] == "modify_theme_directive":
                 content = ""
