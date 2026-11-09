@@ -73,75 +73,41 @@ if [[ -z "${wallpaper_path:-}" || ! -f "$wallpaper_path" ]]; then
   exit 0
 fi
 
-# Update helpers that depend on the path
-ln -sf "$wallpaper_path" "$rofi_link" || true
+# Update helpers that depend on the path (use lightweight symlinks instead of heavy file copies)
+ln -sf "$wallpaper_path" "$rofi_link" 2>/dev/null || true
+ln -sf "$wallpaper_path" "$HOME/.config/hypr/.current_wallpaper" 2>/dev/null || true
 mkdir -p "$(dirname "$wallpaper_current")"
-cp -f "$wallpaper_path" "$wallpaper_current" || true
+ln -sf "$wallpaper_path" "$wallpaper_current" 2>/dev/null || cp -f "$wallpaper_path" "$wallpaper_current" || true
 
 # Ensure Ghostty directory exists so Wallust can write target even if Ghostty isn't installed
 mkdir -p "$HOME/.config/ghostty" || true
-wait_for_templates() {
-  local start_ts="$1"
-  shift
-  local files=("$@")
-  for _ in {1..50}; do
-    local ready=true
-    for file in "${files[@]}"; do
-      if [[ ! -s "$file" ]]; then
-        ready=false
-        break
-      fi
-      local mtime
-      mtime=$(stat -c %Y "$file" 2>/dev/null || echo 0)
-      if (( mtime < start_ts )); then
-        ready=false
-        break
-      fi
-    done
-    $ready && return 0
-    sleep 0.1
-  done
-  return 1
-}
 
-# Run wallust (silent) to regenerate templates defined in ~/.config/wallust/wallust.toml
-# -s is used in this repo to keep things quiet and avoid extra prompts
-start_ts=$(date +%s)
-wallust run -s "$wallpaper_path" || true
-wallust_targets=(
-  "$HOME/.config/waybar/wallust/colors-waybar.css"
-  "$HOME/.config/rofi/wallust/colors-rofi.rasi"
-  "$HOME/.config/hypr/wallust/wallust-hyprland.conf"
-)
-wait_for_templates "$start_ts" "${wallust_targets[@]}" || true
+# Run wallust (synchronous, silent) to regenerate templates defined in ~/.config/wallust/wallust.toml
+wallust run -s "$wallpaper_path" 2>/dev/null || true
 
 # Normalize Ghostty palette syntax in case ':' was used by older files
 if [ -f "$HOME/.config/ghostty/wallust.conf" ]; then
   sed -i -E 's/^(\s*palette\s*=\s*)([0-9]{1,2}):/\1\2=/' "$HOME/.config/ghostty/wallust.conf" 2>/dev/null || true
 fi
 
-# Light wait for Ghostty colors file to be present then signal Ghostty to reload (SIGUSR2)
-for _ in 1 2 3; do
-  [ -s "$HOME/.config/ghostty/wallust.conf" ] && break
-  sleep 0.1
-done
-if pidof ghostty >/dev/null; then
-  for pid in $(pidof ghostty); do kill -SIGUSR2 "$pid" 2>/dev/null || true; done
+if pidof ghostty >/dev/null 2>&1; then
+  killall -SIGUSR2 ghostty 2>/dev/null || true
 fi
 
-# Prompt Kitty to reload dynamic Wallust colors (SIGUSR1)
+# Synchronize Material 3 high-contrast SwayNC palette (without duplicate reload signals)
+if [ -x "$HOME/.local/share/yusei-hypr/scripts/theme-engine.sh" ]; then
+  "$HOME/.local/share/yusei-hypr/scripts/theme-engine.sh" "$wallpaper_path" --no-reload >/dev/null 2>&1 || true
+fi
+
+# Single unified reload pass across Kitty, Waybar, SwayNC, and Hyprland
 if pidof kitty >/dev/null 2>&1; then
-  for pid in $(pidof kitty); do kill -SIGUSR1 "$pid" 2>/dev/null || true; done
+  killall -SIGUSR1 kitty 2>/dev/null || true
 fi
 
-# Prompt Waybar to reload colors
-if command -v waybar-msg >/dev/null 2>&1; then
-  waybar-msg cmd reload >/dev/null 2>&1 || true
-elif pidof waybar >/dev/null; then
+if pidof waybar >/dev/null 2>&1; then
   killall -SIGUSR2 waybar 2>/dev/null || true
 fi
 
-# Apply new Wallust border colors immediately to Hyprland
 if [ -f "$HOME/.config/hypr/wallust/wallust-hyprland.conf" ]; then
   c12=$(grep -E '^\$color12\s*=' "$HOME/.config/hypr/wallust/wallust-hyprland.conf" | sed -E 's/.*=\s*//' | tr -d '[:space:]' || true)
   c10=$(grep -E '^\$color10\s*=' "$HOME/.config/hypr/wallust/wallust-hyprland.conf" | sed -E 's/.*=\s*//' | tr -d '[:space:]' || true)
@@ -150,9 +116,5 @@ if [ -f "$HOME/.config/hypr/wallust/wallust-hyprland.conf" ]; then
   fi
 fi
 
-# Synchronize Material 3 high-contrast SwayNC palette
-if [ -x "$HOME/.local/share/yusei-hypr/scripts/theme-engine.sh" ]; then
-  "$HOME/.local/share/yusei-hypr/scripts/theme-engine.sh" "$wallpaper_path" >/dev/null 2>&1 || true
-fi
 swaync-client -rs >/dev/null 2>&1 || true
-hyprctl reload >/dev/null 2>&1 || true
+hyprctl reload config-only >/dev/null 2>&1 || hyprctl reload >/dev/null 2>&1 || true

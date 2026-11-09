@@ -35,16 +35,11 @@ fi
 if [ -x "${SCRIPTSDIR}/WallustSwww.sh" ]; then
     "${SCRIPTSDIR}/WallustSwww.sh"
 fi
-sleep 0.2
 
-# Reload Hyprland config (updates dynamic Wallust colors, window rules & animations in hyprland.lua)
-hyprctl reload >/dev/null 2>&1 || true
-
-# reload swaync
+# Reload swaync config
 swaync-client --reload-config >/dev/null 2>&1 || true
 
 # Relaunching rainbow borders if the script exists
-sleep 1
 if file_exists "${UserScripts}/RainbowBorders.sh"; then
     "${UserScripts}/RainbowBorders.sh" &
 fi

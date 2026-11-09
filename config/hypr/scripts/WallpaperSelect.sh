@@ -28,17 +28,15 @@ fi
 
 # Variables
 rofi_theme="$HOME/.config/rofi/config-wallpaper.rasi"
-focused_monitor=$(hyprctl monitors -j | jq -r '.[] | select(.focused) | .name')
+read -r focused_monitor scale_factor monitor_height < <(
+  hyprctl monitors -j | jq -r '(.[] | select(.focused)) // .[0] | "\(.name) \(.scale) \(.height)"'
+)
 
 # Ensure focused_monitor is detected
 if [[ -z "$focused_monitor" ]]; then
   notify-send -i "$iDIR/error.png" "E-R-R-O-R" "Could not detect focused monitor"
   exit 1
 fi
-
-# Monitor details
-scale_factor=$(hyprctl monitors -j | jq -r --arg mon "$focused_monitor" '.[] | select(.name == $mon) | .scale')
-monitor_height=$(hyprctl monitors -j | jq -r --arg mon "$focused_monitor" '.[] | select(.name == $mon) | .height')
 
 icon_size=$(echo "scale=1; ($monitor_height * 3) / ($scale_factor * 150)" | bc)
 adjusted_icon_size=$(echo "$icon_size" | awk '{if ($1 < 15) $1 = 20; if ($1 > 25) $1 = 25; print $1}')
@@ -138,12 +136,8 @@ apply_image_wallpaper() {
 
   swww img -o "$focused_monitor" "$image_path" $SWWW_PARAMS
 
-  # Run additional scripts (pass the image path to avoid cache race conditions)
+  # Run WallustSwww.sh synchronously (handles theme-engine + live reload signals)
   "$SCRIPTSDIR/WallustSwww.sh" "$image_path"
-  sleep 0.5
-  "$SCRIPTSDIR/RefreshNoWaybar.sh"
-  pkill -SIGUSR2 waybar 2>/dev/null || true
-
 }
 
 apply_video_wallpaper() {
