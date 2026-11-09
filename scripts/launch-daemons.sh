@@ -12,6 +12,8 @@
 
 set -euo pipefail
 
+export PATH="$HOME/.local/bin:$PATH"
+
 WALLPAPER_DIR="$HOME/Pictures/wallpapers"
 DEFAULT_WALLPAPER="$HOME/.config/hypr/wallpaper.jpg"
 STATE_WALLPAPER="$HOME/.config/hypr/.current_wallpaper"

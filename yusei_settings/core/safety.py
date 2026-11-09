@@ -323,6 +323,7 @@ class SafetyEngine:
                     self._active_wp_proc = subprocess.Popen(
                         [
                             "bash", "-c",
+                            f'export PATH="$HOME/.local/bin:$PATH"; '
                             f'pgrep -x swww-daemon >/dev/null 2>&1 || (swww-daemon --format xrgb >/dev/null 2>&1 & sleep 0.2); '
                             f'swww img "{resolved_wp}" --transition-type any --transition-fps 60 --transition-duration 1.2 --transition-bezier ".43,1.19,1,.4" >/dev/null 2>&1 || true; '
                             f'if [ -x "{wallust_script}" ]; then "{wallust_script}" "{resolved_wp}" >/dev/null 2>&1 || true; '

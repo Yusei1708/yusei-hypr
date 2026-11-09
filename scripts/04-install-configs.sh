@@ -165,6 +165,11 @@ fi
 if [[ -d "$SCRIPT_DIR/bin" ]]; then
     mkdir -p "$HOME/.local/bin" "$HOME/.local/share/yusei-hypr"
     cp -a "$SCRIPT_DIR/bin"/* "$HOME/.local/bin/" 2>/dev/null || true
+    if [[ -d "$HOME/App/swww/pkg/swww/usr/bin" ]]; then
+        cp -f "$HOME/App/swww/pkg/swww/usr/bin/swww" "$HOME/.local/bin/swww"
+        cp -f "$HOME/App/swww/pkg/swww/usr/bin/swww-daemon" "$HOME/.local/bin/swww-daemon"
+        echo -e "${GREEN}✓ Đã ghim cố định swww & swww-daemon (0.9.5) từ ~/App/swww vào ~/.local/bin${NC}"
+    fi
     chmod +x "$HOME/.local/bin"/* 2>/dev/null || true
     if [[ -d "$SCRIPT_DIR/yusei_settings" ]]; then
         rm -rf "$HOME/.local/share/yusei-hypr/yusei_settings"
@@ -192,6 +197,12 @@ for rc in "$HOME/.zshrc" "$HOME/.bashrc"; do
             echo "# Pokemon Fastfetch Banner (yusei-hypr)" >> "$rc"
             echo "$POKEMON_BANNER" >> "$rc"
             echo -e "${GREEN}✓ Đã tích hợp Pokemon Fastfetch vào $(basename "$rc")${NC}"
+        fi
+        if ! grep -q "alias yay=" "$rc"; then
+            echo "" >> "$rc"
+            echo "# Chặn yay/paru tự động thay thế swww bằng awww khi cập nhật" >> "$rc"
+            echo "alias yay='yay --ignore swww,awww'" >> "$rc"
+            echo "alias paru='paru --ignore swww,awww'" >> "$rc"
         fi
     fi
 done

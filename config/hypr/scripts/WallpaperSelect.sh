@@ -2,6 +2,8 @@
 # /* ---- 💫 https://github.com/JaKooLit 💫 ---- */
 # This script for selecting wallpapers (SUPER W)
 
+export PATH="$HOME/.local/bin:$PATH"
+
 # WALLPAPERS PATH
 terminal=kitty
 PICTURES_DIR="$(xdg-user-dir PICTURES 2>/dev/null || echo "$HOME/Pictures")"

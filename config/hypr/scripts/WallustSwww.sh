@@ -5,6 +5,8 @@
 
 set -euo pipefail
 
+export PATH="$HOME/.local/bin:$PATH"
+
 # Inputs and paths
 passed_path="${1:-}"
 cache_dir="$HOME/.cache/swww/"

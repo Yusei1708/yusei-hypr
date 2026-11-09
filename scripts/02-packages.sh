@@ -59,6 +59,25 @@ else
     echo -e "${GREEN}✓ Không có xung đột âm thanh PulseAudio.${NC}"
 fi
 
+# 2b. Xử lý xung đột awww vs swww (Arch Linux đổi swww -> awww làm mất daemon swww)
+if pacman -Qi awww &> /dev/null; then
+    echo -e "${YELLOW}:: Phát hiện gói 'awww' gây xung đột với swww. Đang gỡ bỏ awww...${NC}"
+    sudo pacman -Rdd --noconfirm awww || true
+fi
+if ! grep -Eq '^IgnorePkg\s*=.*swww' /etc/pacman.conf 2>/dev/null; then
+    sudo sed -i 's/^#*\s*IgnorePkg\s*=.*/IgnorePkg = swww awww/' /etc/pacman.conf 2>/dev/null || true
+fi
+if [[ -f "$HOME/App/swww/swww-0.9.5-1-x86_64.pkg.tar.zst" ]] && ! pacman -Qi swww &> /dev/null; then
+    echo -e "${BLUE}:: Cài đặt gói swww (0.9.5) từ $HOME/App/swww/...${NC}"
+    sudo pacman -U --noconfirm "$HOME/App/swww/swww-0.9.5-1-x86_64.pkg.tar.zst" || true
+fi
+if [[ -d "$HOME/App/swww/pkg/swww/usr/bin" ]]; then
+    mkdir -p "$HOME/.local/bin"
+    cp -f "$HOME/App/swww/pkg/swww/usr/bin/swww" "$HOME/.local/bin/swww"
+    cp -f "$HOME/App/swww/pkg/swww/usr/bin/swww-daemon" "$HOME/.local/bin/swww-daemon"
+    chmod +x "$HOME/.local/bin/swww" "$HOME/.local/bin/swww-daemon"
+fi
+
 # 3. Danh sách các gói cần thiết chuẩn hóa tương đương JaKooLit
 PACKAGES=(
     # Core Hyprland & Portals
@@ -170,6 +189,9 @@ fi
 # 4. Lọc ra các gói chưa cài đặt để cài bổ sung
 TO_INSTALL=()
 for pkg in "${PACKAGES[@]}"; do
+    if [[ "$pkg" == "swww" ]] && [[ -x "$HOME/.local/bin/swww" || -x "/usr/bin/swww" ]]; then
+        continue
+    fi
     if ! pacman -Qi "$pkg" &> /dev/null; then
         TO_INSTALL+=("$pkg")
     fi
