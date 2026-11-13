@@ -6,14 +6,41 @@
 #include <sys/socket.h>
 #include <dlfcn.h>
 #include <ctype.h>
+#include <errno.h>
 
 static ssize_t (*real_write)(int fd, const void *buf, size_t count) = NULL;
 static ssize_t (*real_send)(int sockfd, const void *buf, size_t len, int flags) = NULL;
+static int proc_checked = 0;
+static int is_waybar_proc = 0;
+
+static int check_waybar_process(void) {
+    const char *name = program_invocation_short_name;
+    if (name && *name) {
+        const char *slash = strrchr(name, '/');
+        if (slash) name = slash + 1;
+        if (strcmp(name, "waybar") == 0 || strcmp(name, ".waybar-wrapped") == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void ensure_compat_init(void) {
+    if (!real_write) {
+        real_write = dlsym(RTLD_NEXT, "write");
+    }
+    if (!real_send) {
+        real_send = dlsym(RTLD_NEXT, "send");
+    }
+    if (!proc_checked) {
+        is_waybar_proc = check_waybar_process();
+        proc_checked = 1;
+    }
+}
 
 __attribute__((constructor))
 static void init(void) {
-    real_write = dlsym(RTLD_NEXT, "write");
-    real_send = dlsym(RTLD_NEXT, "send");
+    ensure_compat_init();
 }
 
 static size_t trim_arg(const char *src, size_t src_len, char *dst, size_t dst_max) {
@@ -116,8 +143,10 @@ static int translate_dispatch(const void *buf, size_t count, char *out_buf, size
 }
 
 ssize_t write(int fd, const void *buf, size_t count) {
-    if (!real_write) {
-        real_write = dlsym(RTLD_NEXT, "write");
+    ensure_compat_init();
+
+    if (__builtin_expect(!is_waybar_proc, 1)) {
+        return real_write(fd, buf, count);
     }
 
     char new_cmd[512];
@@ -134,8 +163,10 @@ ssize_t write(int fd, const void *buf, size_t count) {
 }
 
 ssize_t send(int sockfd, const void *buf, size_t len, int flags) {
-    if (!real_send) {
-        real_send = dlsym(RTLD_NEXT, "send");
+    ensure_compat_init();
+
+    if (__builtin_expect(!is_waybar_proc, 1)) {
+        return real_send(sockfd, buf, len, flags);
     }
 
     char new_cmd[512];

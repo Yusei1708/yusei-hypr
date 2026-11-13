@@ -121,6 +121,123 @@ yusei_overlay_config_dir() {
     done < <(find "$src_dir" -mindepth 1 \( -type f -o -type l \) -print0)
 }
 
+_yusei_atomic_copy_file() {
+    local src="$1"
+    local dst="$2"
+    local tmp_dst
+    mkdir -p "$(dirname "$dst")"
+    tmp_dst="$(dirname "$dst")/.tmp.$(basename "$dst").$$"
+    rm -f "$tmp_dst"
+    if cp -a "$src" "$tmp_dst" 2>/dev/null; then
+        mv -f "$tmp_dst" "$dst"
+    else
+        rm -f "$tmp_dst"
+        return 1
+    fi
+}
+
+_yusei_atomic_copy_dir() {
+    local src_dir="$1"
+    local dst_dir="$2"
+    local make_exec="${3:-false}"
+    [[ -d "$src_dir" ]] || return 0
+    mkdir -p "$dst_dir"
+    local item base
+    for item in "$src_dir"/*; do
+        [[ -e "$item" || -L "$item" ]] || continue
+        base="$(basename "$item")"
+        if _yusei_atomic_copy_file "$item" "$dst_dir/$base"; then
+            if [[ "$make_exec" == "true" ]]; then
+                chmod +x "$dst_dir/$base" 2>/dev/null || true
+            fi
+        fi
+    done
+}
+
+_yusei_clamp_anim_file_speeds() {
+    local anim_file="$1"
+    [[ -f "$anim_file" ]] || return 0
+    local tmp_file
+    tmp_file="$(dirname "$anim_file")/.tmp.$(basename "$anim_file").$$"
+    local rc=0
+    awk '
+    BEGIN { changed = 0 }
+    {
+        line = $0
+        code = line
+        comment = ""
+        cpos = index(line, "#")
+        if (cpos > 0) {
+            code = substr(line, 1, cpos - 1)
+            comment = substr(line, cpos)
+        }
+        if (code ~ /^[[:space:]]*animation[[:space:]]*=/) {
+            eqpos = index(code, "=")
+            lhs = substr(code, 1, eqpos)
+            rhs = substr(code, eqpos + 1)
+            n = split(rhs, parts, ",")
+            if (n >= 3) {
+                spd_raw = parts[3]
+                spd_lead = ""
+                if (match(spd_raw, /^[[:space:]]*/)) {
+                    spd_lead = substr(spd_raw, 1, RLENGTH)
+                }
+                spd_trim = spd_raw
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", spd_trim)
+                if (spd_trim ~ /^[0-9]+(\.[0-9]+)?$/ && (spd_trim + 0) > 100) {
+                    parts[3] = spd_lead "100"
+                    rebuilt = parts[1]
+                    for (i = 2; i <= n; i++) {
+                        rebuilt = rebuilt "," parts[i]
+                    }
+                    line = lhs rebuilt (comment != "" ? " " comment : "")
+                    changed = 1
+                }
+            }
+        }
+        print line
+    }
+    END { exit (changed ? 0 : 10) }' "$anim_file" > "$tmp_file" || rc=$?
+    if [[ "$rc" -eq 0 ]]; then
+        mv -f "$tmp_file" "$anim_file"
+    else
+        rm -f "$tmp_file"
+    fi
+}
+
+yusei_sync_userscripts() {
+    local repo_root="$1"
+    local config_home="$2"
+    local src_dir="$repo_root/config/hypr/UserScripts"
+    local dst_dir="$config_home/hypr/UserScripts"
+    [[ -d "$src_dir" ]] || return 0
+
+    mkdir -p "$dst_dir"
+    local bak_dir="$dst_dir/.bak-$(date +%Y%m%d_%H%M%S)"
+    local backed_any=false
+    local src_item rel dst_item
+
+    while IFS= read -r -d '' src_item; do
+        rel="${src_item#"$src_dir/"}"
+        dst_item="$dst_dir/$rel"
+        if [[ -e "$dst_item" || -L "$dst_item" ]] && ! cmp -s "$src_item" "$dst_item" 2>/dev/null; then
+            mkdir -p "$bak_dir/$(dirname "$rel")"
+            cp -a "$dst_item" "$bak_dir/$rel" 2>/dev/null || true
+            backed_any=true
+        fi
+        _yusei_atomic_copy_file "$src_item" "$dst_item" || true
+        if [[ "$dst_item" == *.sh || "$dst_item" == *.py ]]; then
+            chmod +x "$dst_item" 2>/dev/null || true
+        fi
+    done < <(find "$src_dir" -mindepth 1 \( -type f -o -type l \) -print0)
+
+    if [[ "$backed_any" == "true" ]]; then
+        echo -e "${GREEN}✓ Đã sao lưu UserScripts cũ vào $bak_dir và đồng bộ bản mới${NC}"
+    else
+        echo -e "${GREEN}✓ Đã đồng bộ UserScripts mới nhất vào $dst_dir${NC}"
+    fi
+}
+
 yusei_deploy_all_configs() {
     local repo_root="$1"
     local config_home="$2"
@@ -147,6 +264,9 @@ yusei_deploy_all_configs() {
                         echo "animation = fadeDpms, 0"
                     } >> "$dst_dir/animations.conf"
                 fi
+                # Kẹp an toàn speed > 100 trong UserAnimations.conf/animations.conf hiện có (Hyprland 0.57+)
+                _yusei_clamp_anim_file_speeds "$dst_dir/UserConfigs/UserAnimations.conf"
+                _yusei_clamp_anim_file_speeds "$dst_dir/animations.conf"
                 echo -e "${GREEN}✓ Đã đồng bộ an toàn (non-destructive, giữ cấu hình/trạng thái người dùng): $dst_dir${NC}"
             else
                 echo -e "${GREEN}✓ Đã triển khai: $dst_dir${NC}"
@@ -239,10 +359,15 @@ yusei_sync_local_runtime() {
     local local_share="$data_home/yusei-hypr"
 
     if [[ -d "$repo_root/lib" ]]; then
-        mkdir -p "$HOME/.local/lib"
-        cp -a "$repo_root/lib"/* "$HOME/.local/lib/" 2>/dev/null || true
+        _yusei_atomic_copy_dir "$repo_root/lib" "$HOME/.local/lib" "false"
         if [[ -f "$repo_root/lib/waybar-hyprland-compat.c" ]] && command -v gcc >/dev/null 2>&1; then
-            gcc -shared -fPIC -O2 "$repo_root/lib/waybar-hyprland-compat.c" -o "$HOME/.local/lib/libwaybar-hyprland.so" -ldl 2>/dev/null || true
+            local so_tmp="$HOME/.local/lib/.tmp.libwaybar-hyprland.so.$$"
+            rm -f "$so_tmp"
+            if gcc -shared -fPIC -O2 "$repo_root/lib/waybar-hyprland-compat.c" -o "$so_tmp" -ldl 2>/dev/null; then
+                mv -f "$so_tmp" "$HOME/.local/lib/libwaybar-hyprland.so"
+            else
+                rm -f "$so_tmp"
+            fi
         fi
     fi
 
@@ -250,9 +375,8 @@ yusei_sync_local_runtime() {
 
     # Không bao giờ chmod trực tiếp lên $repo_root/bin/* để giữ sạch git working tree
     if [[ -d "$repo_root/bin" ]]; then
-        cp -a "$repo_root/bin"/* "$HOME/.local/bin/" 2>/dev/null || true
-        cp -a "$repo_root/bin"/* "$local_share/bin/" 2>/dev/null || true
-        chmod +x "$HOME/.local/bin"/* "$local_share/bin"/* 2>/dev/null || true
+        _yusei_atomic_copy_dir "$repo_root/bin" "$HOME/.local/bin" "true"
+        _yusei_atomic_copy_dir "$repo_root/bin" "$local_share/bin" "true"
     fi
 
     if [[ -d "$repo_root/assets/packages" ]]; then
@@ -291,9 +415,11 @@ fi
 trap _yusei_cleanup_tmp_preserve EXIT INT TERM
 
 DRY_RUN=false
+SYNC_USERSCRIPTS=false
 for arg in "$@"; do
     case "$arg" in
         --dry-run) DRY_RUN=true ;;
+        --sync-userscripts) SYNC_USERSCRIPTS=true ;;
     esac
 done
 
@@ -319,6 +445,10 @@ fi
 
 # 1-2. Đồng bộ an toàn toàn bộ thư mục cấu hình vào CONFIG_HOME
 yusei_deploy_all_configs "$SCRIPT_DIR" "$CONFIG_HOME"
+
+if [[ "$SYNC_USERSCRIPTS" == "true" ]]; then
+    yusei_sync_userscripts "$SCRIPT_DIR" "$CONFIG_HOME"
+fi
 
 # 3. Kích hoạt NVIDIA nếu được phát hiện
 if [ "${HAS_NVIDIA:-false}" = "true" ]; then
