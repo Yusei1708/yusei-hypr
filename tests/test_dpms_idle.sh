@@ -44,7 +44,7 @@ cleanup_dpms_suite() {
 }
 trap cleanup_dpms_suite EXIT
 
-TOTAL_TESTS=36
+TOTAL_TESTS=42
 echo -e "${BLUE}${BOLD}:: [Test Suite] DPMS & Idle/Wake Stability${NC}"
 echo "1..${TOTAL_TESTS}"
 
@@ -970,6 +970,218 @@ assert_check "bin/notify-send enforces 3000ms single-popup defaults when no acti
 SWAYNC_CONF="$REPO_ROOT/config/swaync/config.json"
 assert_check "config/swaync/config.json is valid JSON with required widgets, vexpand, and single-popup keys" \
     "jq -e '(.widgets | type == \"array\" and length > 0) and .\"widget-config\".notifications.vexpand == true and .scripts.\"single-popup\".exec and .scripts.\"single-popup\".\"run-on\"' '$SWAYNC_CONF' >/dev/null 2>&1"
+
+# ------------------------------------------------------------------------------
+# 37. Hyprland Animation Speed Bounds (<= 100.00 across all presets & user config)
+# ------------------------------------------------------------------------------
+assert_check "All animation presets and UserAnimations.conf enforce speed <= 100.00" \
+    "python3 -c '
+import glob, re, sys
+files = sorted(glob.glob(\"$REPO_ROOT/config/hypr/animations/*.conf\") + [\"$REPO_ROOT/config/hypr/UserConfigs/UserAnimations.conf\", \"$REPO_ROOT/config/hypr/animations.conf\"])
+bad = []
+for p in files:
+    with open(p, encoding=\"utf-8\") as f:
+        for i, line in enumerate(f, 1):
+            s = line.split(\"#\", 1)[0].strip()
+            m = re.match(r\"^animation\\s*=\\s*[^,]+,\\s*[^,]+,\\s*([0-9.]+)\", s)
+            if m and float(m.group(1)) > 100.0:
+                bad.append(f\"{p}:{i}:{m.group(1)}\")
+sys.exit(1 if bad else 0)
+'"
+
+# ------------------------------------------------------------------------------
+# 38. hyprland.lua Clamps Speed > 100 at Runtime via Lua Harness
+# ------------------------------------------------------------------------------
+test_hyprland_lua_speed_clamp() {
+    local lua_bin=""
+    lua_bin="$(command -v lua || command -v lua5.4 || command -v luajit || true)"
+    [[ -n "$lua_bin" ]] || return 1
+
+    local lua_home="$TMP_ROOT/lua_home"
+    mkdir -p "$lua_home/.config/hypr/UserConfigs"
+    cat <<'EOF' > "$lua_home/.config/hypr/animations.conf"
+animations {
+    enabled = yes
+    animation = borderangle, 1, 180, liner, loop
+    animation = fadeDpms, 0
+}
+EOF
+    cat <<'EOF' > "$lua_home/.config/hypr/UserConfigs/UserAnimations.conf"
+animations {
+    animation = borderangle, 1, 250, liner, loop
+}
+EOF
+
+    HOME="$lua_home" "$lua_bin" -e '
+        local calls = {}
+        local noop_mt
+        noop_mt = {
+            __index = function(_, k)
+                return setmetatable({}, noop_mt)
+            end,
+            __call = function(_, ...)
+                return setmetatable({}, noop_mt)
+            end
+        }
+        hl = setmetatable({
+            animation = function(def)
+                table.insert(calls, def)
+            end,
+        }, noop_mt)
+        assert(loadfile("'"$HYPRLAND_LUA"'"))()
+        local max_speed = 0
+        local saw_borderangle = false
+        local final_fadedpms = nil
+        for _, c in ipairs(calls) do
+            if type(c) == "table" then
+                if c.speed and c.speed > max_speed then max_speed = c.speed end
+                if c.leaf == "borderangle" then saw_borderangle = true end
+                if c.leaf == "fadeDpms" then final_fadedpms = c.enabled end
+            end
+        end
+        assert(saw_borderangle, "borderangle never called")
+        assert(max_speed <= 100, "speed exceeded 100: " .. tostring(max_speed))
+        assert(final_fadedpms == false, "fadeDpms not disabled")
+    '
+}
+assert_check "hyprland.lua clamps borderangle speed 180/250 -> 100 and keeps fadeDpms disabled" \
+    "test_hyprland_lua_speed_clamp"
+
+# ------------------------------------------------------------------------------
+# 39. Animations.sh --apply Sanitizes Speed > 100 & Keeps fadeDpms, 0
+# ------------------------------------------------------------------------------
+test_animations_sh_apply_sanitizes() {
+    local anim_home="$TMP_ROOT/anim_home"
+    local anim_bin="$TMP_ROOT/anim_bin"
+    mkdir -p "$anim_home/.config/hypr/animations" "$anim_home/.config/hypr/UserConfigs" "$anim_home/.config/hypr/scripts" "$anim_bin"
+    cat <<'EOF' > "$anim_home/.config/hypr/animations/TestHighSpeed.conf"
+animations {
+  enabled = yes
+  animation = borderangle, 1, 180, liner, loop # test comment
+}
+EOF
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$anim_bin/hyprctl"
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$anim_bin/notify-send"
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$anim_home/.config/hypr/scripts/RefreshNoWaybar.sh"
+    chmod +x "$anim_bin/hyprctl" "$anim_bin/notify-send" "$anim_home/.config/hypr/scripts/RefreshNoWaybar.sh"
+
+    HOME="$anim_home" PATH="$anim_bin:$ORIG_PATH" bash "$REPO_ROOT/config/hypr/scripts/Animations.sh" --apply TestHighSpeed >/dev/null 2>&1
+
+    grep -q 'animation = borderangle, 1, 100, liner, loop' "$anim_home/.config/hypr/UserConfigs/UserAnimations.conf" && \
+    ! grep -q '180' "$anim_home/.config/hypr/UserConfigs/UserAnimations.conf" && \
+    grep -Eq 'animation[[:space:]]*=[[:space:]]*fadeDpms,[[:space:]]*0' "$anim_home/.config/hypr/UserConfigs/UserAnimations.conf" && \
+    grep -Eq 'animation[[:space:]]*=[[:space:]]*fadeDpms,[[:space:]]*0' "$anim_home/.config/hypr/animations.conf"
+}
+assert_check "Animations.sh --apply clamps speed > 100 to 100 and enforces fadeDpms, 0 in both animation configs" \
+    "test_animations_sh_apply_sanitizes"
+
+# ------------------------------------------------------------------------------
+# 40. launch-daemons.sh & Refresh.sh Use systemd swaync.service & Prioritize ~/.local/bin
+# ------------------------------------------------------------------------------
+test_swaync_systemd_and_local_bin() {
+    local sd_home="$TMP_ROOT/sd_home"
+    local sd_bin="$TMP_ROOT/sd_bin"
+    local sd_log="$TMP_ROOT/sd_calls.log"
+    mkdir -p "$sd_home/.local/bin" "$sd_home/.config/hypr/scripts" "$sd_home/.config/hypr/UserScripts" "$sd_bin"
+    : > "$sd_log"
+
+    cat <<EOF > "$sd_bin/systemctl"
+#!/usr/bin/env bash
+printf 'systemctl %s\n' "\$*" >> "$sd_log"
+if [[ "\${1:-}" == "--user" && "\${2:-}" == "cat" && "\${3:-}" == "swaync.service" ]]; then
+    exit 0
+fi
+exit 0
+EOF
+    cat <<'EOF' > "$sd_bin/pidof"
+#!/usr/bin/env bash
+exit 1
+EOF
+    cat <<EOF > "$sd_home/.local/bin/waybar"
+#!/usr/bin/env bash
+printf 'local_waybar\n' >> "$sd_log"
+exit 0
+EOF
+    printf '#!/usr/bin/env bash\nexit 1\n' > "$sd_bin/waybar"
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$sd_bin/pkill"
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$sd_bin/killall"
+    printf '#!/usr/bin/env bash\nexit 1\n' > "$sd_bin/swww"
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$sd_bin/swww-daemon"
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$sd_bin/hypridle"
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$sd_bin/hyprctl"
+    chmod +x "$sd_bin"/* "$sd_home/.local/bin/waybar"
+
+    HOME="$sd_home" PATH="$sd_bin:$ORIG_PATH" bash "$REPO_ROOT/config/hypr/scripts/launch-daemons.sh" >/dev/null 2>&1
+    wait || true
+    HOME="$sd_home" PATH="$sd_bin:$ORIG_PATH" bash "$REPO_ROOT/config/hypr/scripts/Refresh.sh" >/dev/null 2>&1
+    sleep 0.1
+
+    grep -q 'systemctl --user reset-failed swaync.service' "$sd_log" && \
+    [ "$(grep -c 'systemctl --user start swaync.service' "$sd_log")" -ge 2 ] && \
+    grep -q 'local_waybar' "$sd_log"
+}
+assert_check "launch-daemons.sh and Refresh.sh start swaync via user systemd unit and prioritize ~/.local/bin waybar" \
+    "test_swaync_systemd_and_local_bin"
+
+# ------------------------------------------------------------------------------
+# 41. libwaybar-hyprland-compat Isolates Translation to waybar Process Only
+# ------------------------------------------------------------------------------
+test_libwaybar_compat_process_isolation() {
+    command -v gcc >/dev/null 2>&1 || return 1
+    local c_dir="$TMP_ROOT/compat_test"
+    mkdir -p "$c_dir"
+    cat <<'EOF' > "$c_dir/writer.c"
+#include <unistd.h>
+#include <string.h>
+int main(void) {
+    const char *msg = "dispatch workspace 2\n";
+    return write(1, msg, strlen(msg)) > 0 ? 0 : 1;
+}
+EOF
+    gcc -O2 "$c_dir/writer.c" -o "$c_dir/other_proc"
+    cp "$c_dir/other_proc" "$c_dir/waybar"
+
+    local out_other out_waybar
+    out_other="$(LD_PRELOAD="$REPO_ROOT/lib/libwaybar-hyprland.so" "$c_dir/other_proc")"
+    out_waybar="$(LD_PRELOAD="$REPO_ROOT/lib/libwaybar-hyprland.so" "$c_dir/waybar")"
+
+    [[ "$out_other" == "dispatch workspace 2" ]] && \
+    [[ "$out_waybar" == "dispatch hl.dsp.focus({ workspace = 2 })" ]]
+}
+assert_check "libwaybar-hyprland-compat passes through non-waybar processes and translates waybar IPC only" \
+    "test_libwaybar_compat_process_isolation"
+
+# ------------------------------------------------------------------------------
+# 42. bin/notify-send Resolves Missing swaync/images Paths Across All Modes
+# ------------------------------------------------------------------------------
+test_notify_send_missing_icon_fallback() {
+    local fb_log="$NS_SANDBOX/icon_fallback.log"
+    local fb_home="$TMP_ROOT/fb_home"
+    mkdir -p "$fb_home/.config/swaync/icons"
+    : > "$fb_home/.config/swaync/icons/timer.png"
+    : > "$fb_log"
+
+    # Missing image with -A (passthrough=true) -> Freedesktop dialog-error
+    HOME="$fb_home" REAL_NOTIFY_SEND="$NS_BIN/real-notify-send" XDG_RUNTIME_DIR="$NS_RUNTIME" NS_LOG="$fb_log" \
+        "$NOTIFY_WRAPPER" -A "ok=OK" -i "$fb_home/.config/swaync/images/error.png" "Err" "Body"
+    # Missing image with default mode -> existing icons/timer.png
+    HOME="$fb_home" REAL_NOTIFY_SEND="$NS_BIN/real-notify-send" XDG_RUNTIME_DIR="$NS_RUNTIME" NS_LOG="$fb_log" \
+        "$NOTIFY_WRAPPER" --icon="$fb_home/.config/swaync/images/timer.png" "Timer" "Body"
+    # Missing ja.png -> dialog-information
+    HOME="$fb_home" REAL_NOTIFY_SEND="$NS_BIN/real-notify-send" XDG_RUNTIME_DIR="$NS_RUNTIME" NS_LOG="$fb_log" \
+        "$NOTIFY_WRAPPER" -i "$fb_home/.config/swaync/images/ja.png" "Info" "Body"
+
+    local l1 l2 l3
+    l1="$(sed -n '1p' "$fb_log")"
+    l2="$(sed -n '2p' "$fb_log")"
+    l3="$(sed -n '3p' "$fb_log")"
+
+    grep -q -- '-i dialog-error' <<< "$l1" && \
+    grep -q -- "--icon=$fb_home/.config/swaync/icons/timer.png" <<< "$l2" && \
+    grep -q -- '-i dialog-information' <<< "$l3"
+}
+assert_check "bin/notify-send falls back missing swaync/images paths to icons/ or standard Freedesktop icon names" \
+    "test_notify_send_missing_icon_fallback"
 
 export HOME="$ORIG_HOME"
 export PATH="$ORIG_PATH"

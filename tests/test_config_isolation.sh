@@ -42,7 +42,7 @@ if [[ -d "$REAL_HOME/.config" ]]; then
     REAL_CONFIG_MTIME="$(stat -c %Y "$REAL_HOME/.config" 2>/dev/null || true)"
 fi
 
-TOTAL_TESTS=23
+TOTAL_TESTS=25
 echo "1..${TOTAL_TESTS}"
 
 TEST_INDEX=0
@@ -291,6 +291,37 @@ lines = [l for l in opts.splitlines() if l.strip().startswith(\"IgnorePkg\")]
 assert lines == [\"IgnorePkg = swww awww\"], lines
 assert \"IgnorePkg\" not in rest, rest
 '"
+
+# ------------------------------------------------------------------------------
+# 4b. Atomic .so Deploy, UserAnimations Clamping & --sync-userscripts
+# ------------------------------------------------------------------------------
+MOCK_ATOMIC_HOME="$(mktemp -d -t yusei_atomic_XXXXXX)"
+trap 'rm -rf "$MOCK_HOME" "$MOCK_HOME_FRESH" "$MOCK_ANIM_HOME" "$MOCK_DRYRUN_HOME" "$PKG_SANDBOX" "$MOCK_ATOMIC_HOME"' EXIT
+
+mkdir -p "$MOCK_ATOMIC_HOME/.local/lib" "$MOCK_ATOMIC_HOME/.config/hypr/UserConfigs" "$MOCK_ATOMIC_HOME/.config/hypr/UserScripts"
+printf 'OLD_MAPPED_INODE' > "$MOCK_ATOMIC_HOME/.local/lib/libwaybar-hyprland.so"
+ln -f "$MOCK_ATOMIC_HOME/.local/lib/libwaybar-hyprland.so" "$MOCK_ATOMIC_HOME/.local/lib/libwaybar-hyprland.so.hardlink"
+OLD_INODE="$(stat -c %i "$MOCK_ATOMIC_HOME/.local/lib/libwaybar-hyprland.so.hardlink")"
+
+cat <<'EOF' > "$MOCK_ATOMIC_HOME/.config/hypr/UserConfigs/UserAnimations.conf"
+animations {
+    animation = borderangle, 1, 180, liner, loop
+}
+EOF
+echo '# stale userscript' > "$MOCK_ATOMIC_HOME/.config/hypr/UserScripts/WallpaperSelect.sh"
+
+assert_check "04-install-configs.sh replaces libwaybar-hyprland.so atomically (new inode) and clamps existing UserAnimations speed <= 100" \
+    "(export HOME='$MOCK_ATOMIC_HOME' XDG_CONFIG_HOME='$MOCK_ATOMIC_HOME/.config' XDG_DATA_HOME='$MOCK_ATOMIC_HOME/.local/share' XDG_STATE_HOME='$MOCK_ATOMIC_HOME/.local/state'; bash '$REPO_ROOT/scripts/04-install-configs.sh' >/dev/null 2>&1) && \
+     [ \"\$(stat -c %i '$MOCK_ATOMIC_HOME/.local/lib/libwaybar-hyprland.so')\" != '$OLD_INODE' ] && \
+     [ \"\$(cat '$MOCK_ATOMIC_HOME/.local/lib/libwaybar-hyprland.so.hardlink')\" = 'OLD_MAPPED_INODE' ] && \
+     grep -q 'animation = borderangle, 1, 100, liner, loop' '$MOCK_ATOMIC_HOME/.config/hypr/UserConfigs/UserAnimations.conf' && \
+     grep -q 'stale userscript' '$MOCK_ATOMIC_HOME/.config/hypr/UserScripts/WallpaperSelect.sh'"
+
+assert_check "04-install-configs.sh --sync-userscripts backs up stale UserScripts and deploys repo fixes" \
+    "(export HOME='$MOCK_ATOMIC_HOME' XDG_CONFIG_HOME='$MOCK_ATOMIC_HOME/.config' XDG_DATA_HOME='$MOCK_ATOMIC_HOME/.local/share' XDG_STATE_HOME='$MOCK_ATOMIC_HOME/.local/state'; bash '$REPO_ROOT/scripts/04-install-configs.sh' --sync-userscripts >/dev/null 2>&1) && \
+     BAK_DIR=\$(find '$MOCK_ATOMIC_HOME/.config/hypr/UserScripts' -maxdepth 1 -type d -name '.bak-*' | head -n 1) && \
+     [ -n \"\$BAK_DIR\" ] && grep -q 'stale userscript' \"\$BAK_DIR/WallpaperSelect.sh\" && \
+     ! grep -q 'stale userscript' '$MOCK_ATOMIC_HOME/.config/hypr/UserScripts/WallpaperSelect.sh'"
 
 # ------------------------------------------------------------------------------
 # 5. Host Safety & Zero Pollution Check

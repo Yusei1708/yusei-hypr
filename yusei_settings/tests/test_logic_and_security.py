@@ -115,6 +115,41 @@ class TestSafetyEngineCommit5(unittest.TestCase):
         self.assertEqual(orig_anim.read_text(encoding="utf-8"), "# original animations.conf\n")
         self.assertEqual(orig_user_anim.read_text(encoding="utf-8"), "# original UserAnimations.conf\n")
 
+    def test_hyprland_animation_clamps_speeds_above_100(self):
+        """Applying an animation preset clamps speeds > 100 down to 100 in UserAnimations.conf."""
+        (self.home / ".config" / "hypr" / "UserConfigs").mkdir(parents=True, exist_ok=True)
+        preset = self.assets / "overspeed.conf"
+        preset.write_text(
+            "animations {\n"
+            "    animation = borderangle, 1, 180, liner, loop # keep comment\n"
+            "    animation = windows, 1, 6, wind, slide\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        res = self.engine.apply_change("hyprland_animation", "overspeed", str(preset), confirmed=True)
+        self.assertTrue(res["success"])
+        user_anim = (self.home / ".config" / "hypr" / "UserConfigs" / "UserAnimations.conf").read_text(encoding="utf-8")
+        self.assertIn("animation = borderangle, 1, 100, liner, loop # keep comment", user_anim)
+        self.assertNotIn("180", user_anim)
+        self.assertRegex(user_anim, r"animation\s*=\s*fadeDpms\s*,\s*0")
+
+    def test_waybar_fallback_launch_prioritizes_local_bin_in_path(self):
+        """When waybar is not running in live session, fallback Popen prepends ~/.local/bin to PATH."""
+        style_src = self.assets / "waybar_test.css"
+        style_src.write_text("/* style */\n", encoding="utf-8")
+        failed_sig = mock.Mock(returncode=1)
+        with mock.patch.dict(os.environ, {"HOME": str(self.home)}, clear=False), \
+             mock.patch("yusei_settings.core.safety.subprocess.run", return_value=failed_sig), \
+             mock.patch("yusei_settings.core.safety.subprocess.Popen") as mock_popen:
+            res = self.engine.apply_change("waybar_style", "waybar_test", str(style_src), confirmed=True)
+        self.assertTrue(res["success"])
+        mock_popen.assert_called_once()
+        popen_kwargs = mock_popen.call_args.kwargs
+        env_passed = popen_kwargs["env"]
+        expected_prefix = str(self.home / ".local" / "bin")
+        self.assertTrue(env_passed["PATH"].startswith(expected_prefix + ":"))
+        self.assertEqual(env_passed["HOME"], str(self.home))
+
     def test_rofi_theme_resolves_to_end4_and_never_loops_config_rasi(self):
         """Legacy config.rasi input resolves to End-4-Material3.rasi; self-referential config.rasi errors."""
         rofi_assets = self.assets / "rofi"
