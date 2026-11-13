@@ -7,12 +7,112 @@ let appCatalog = {};
 let activeState = {};
 let currentCategory = "waybar_layouts";
 let pendingApply = null;
+let previewingTarget = null;
 let lastSnapshotId = null;
+
+const CATEGORY_TO_API = {
+  waybar_layouts: "waybar_layout",
+  waybar_styles: "waybar_style",
+  rofi_themes: "rofi_theme",
+  kitty_themes: "kitty_theme",
+  hyprland_animations: "hyprland_animation",
+  wallpapers: "wallpaper",
+};
+
+function toApiCategory(category) {
+  return CATEGORY_TO_API[category] || category;
+}
+
+// -----------------------------------------------------------------------------
+// Security & HTTP Helpers
+// -----------------------------------------------------------------------------
+function escapeHtml(str) {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function sanitizeUrl(url) {
+  if (!url) return "";
+  const s = String(url).trim();
+  if (/^(javascript|data|vbscript):/i.test(s.replace(/[\s\x00-\x1f]+/g, ""))) {
+    return "";
+  }
+  return s;
+}
+
+function sanitizeCssColor(color) {
+  if (!color) return "#141316";
+  const s = String(color).trim();
+  if (/^(#[0-9a-fA-F]{3,8}|(?:rgb|rgba|hsl|hsla)\([0-9.,%\s+-]+\)|[a-zA-Z]{1,30})$/.test(s)) {
+    return s;
+  }
+  return "#141316";
+}
+
+async function apiFetch(url, opts = {}) {
+  const method = (opts.method || "GET").toUpperCase();
+  const fetchOpts = { ...opts, method };
+
+  if (method === "POST") {
+    fetchOpts.headers = {
+      ...(opts.headers || {}),
+      "Content-Type": "application/json",
+    };
+    if (fetchOpts.body === undefined || fetchOpts.body === null || fetchOpts.body === "") {
+      fetchOpts.body = "{}";
+    } else if (typeof fetchOpts.body !== "string") {
+      fetchOpts.body = JSON.stringify(fetchOpts.body);
+    }
+  }
+
+  const res = await fetch(url, fetchOpts);
+  const rawText = await res.text();
+  let data = null;
+
+  if (rawText) {
+    try {
+      data = JSON.parse(rawText);
+    } catch (_parseErr) {
+      if (!res.ok) {
+        const err = new Error(`HTTP ${res.status}: ${rawText.slice(0, 200)}`);
+        err.status = res.status;
+        throw err;
+      }
+      throw new Error("Phản hồi từ máy chủ không phải JSON hợp lệ.");
+    }
+  }
+
+  if (!res.ok) {
+    const msg = (data && (data.message || data.error)) || `HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""}`;
+    const err = new Error(msg);
+    err.data = data;
+    err.status = res.status;
+    throw err;
+  }
+
+  if (data && typeof data === "object" && data.success === false) {
+    const msg = data.message || "Thao tác không thành công.";
+    const err = new Error(msg);
+    err.data = data;
+    err.status = res.status;
+    throw err;
+  }
+
+  return data;
+}
 
 document.addEventListener("DOMContentLoaded", () => {
   initNavigation();
   initCategoryTabs();
+  initGlobalSearch();
   initModalActions();
+  initPreviewModalActions();
+  initBackupButtons();
   initKeybindsAndMaintenance();
   initPowerManagement();
   fetchStateAndCatalog();
@@ -56,7 +156,146 @@ function initNavigation() {
         fetchPowerStatus();
         powerPollInterval = setInterval(fetchPowerStatus, 5000);
       }
+
+      applyGlobalSearch();
     });
+  });
+}
+
+// -----------------------------------------------------------------------------
+// 1b. Global Search Filtering
+// -----------------------------------------------------------------------------
+function initGlobalSearch() {
+  const globalSearch = document.getElementById("global-search");
+  if (!globalSearch) return;
+  globalSearch.addEventListener("input", applyGlobalSearch);
+  globalSearch.addEventListener("search", applyGlobalSearch);
+}
+
+function setEmptySearchNote(container, visible, text) {
+  if (!container) return;
+  let note = container.querySelector(".search-empty-note");
+  if (visible) {
+    if (!note) {
+      note = document.createElement("p");
+      note.className = "search-empty-note";
+      note.style.color = "var(--text-muted)";
+      note.style.fontSize = "13px";
+      note.style.gridColumn = "1 / -1";
+      note.textContent = text;
+      container.appendChild(note);
+    } else {
+      note.style.display = "";
+    }
+  } else if (note) {
+    note.remove();
+  }
+}
+
+function applyGlobalSearch() {
+  const globalSearch = document.getElementById("global-search");
+  const query = (globalSearch ? globalSearch.value : "").trim().toLowerCase();
+
+  // 1. Gallery cards
+  const galleryContainer = document.getElementById("gallery-container");
+  if (galleryContainer) {
+    const cards = galleryContainer.querySelectorAll(".theme-card");
+    let visibleCards = 0;
+    cards.forEach(card => {
+      const text = (card.dataset.searchText || card.textContent || "").toLowerCase();
+      const match = !query || text.includes(query);
+      card.style.display = match ? "" : "none";
+      if (match) visibleCards += 1;
+    });
+    setEmptySearchNote(
+      galleryContainer,
+      Boolean(query) && cards.length > 0 && visibleCards === 0,
+      "Không tìm thấy mục nào khớp với từ khóa tìm kiếm."
+    );
+  }
+
+  // 2. Keybind cards
+  const keybindsContainer = document.getElementById("keybinds-container");
+  const countBadge = document.getElementById("keybinds-count-badge");
+  if (keybindsContainer) {
+    const kbCards = keybindsContainer.querySelectorAll(".keybind-card");
+    let visibleKb = 0;
+    kbCards.forEach(card => {
+      const text = (card.dataset.searchText || card.textContent || "").toLowerCase();
+      const match = !query || text.includes(query);
+      card.style.display = match ? "" : "none";
+      if (match) visibleKb += 1;
+    });
+    if (countBadge && (allKeybinds.length > 0 || kbCards.length > 0)) {
+      countBadge.textContent = `${visibleKb} phím tắt`;
+    }
+    setEmptySearchNote(
+      keybindsContainer,
+      Boolean(query) && kbCards.length > 0 && visibleKb === 0,
+      "Không tìm thấy phím tắt khớp với từ khóa tìm kiếm."
+    );
+  }
+
+  // 3. Settings sections, rows, and power profile cards
+  const sections = document.querySelectorAll(".settings-page .settings-section-card");
+  sections.forEach(section => {
+    const rows = section.querySelectorAll(".settings-row");
+    const profileCards = section.querySelectorAll(".power-profile-card");
+    const metrics = section.querySelectorAll(".status-metric");
+
+    if (!query) {
+      section.style.display = "";
+      rows.forEach(r => { r.style.display = ""; });
+      profileCards.forEach(p => { p.style.display = ""; });
+      metrics.forEach(m => { m.style.display = ""; });
+      return;
+    }
+
+    const headerText = (section.querySelector(".settings-section-header")?.textContent || "").toLowerCase();
+    if (headerText.includes(query)) {
+      section.style.display = "";
+      rows.forEach(r => { r.style.display = ""; });
+      profileCards.forEach(p => { p.style.display = ""; });
+      metrics.forEach(m => { m.style.display = ""; });
+      return;
+    }
+
+    let anyChildMatch = false;
+
+    if (rows.length > 0) {
+      rows.forEach(row => {
+        const match = (row.textContent || "").toLowerCase().includes(query);
+        row.style.display = match ? "" : "none";
+        if (match) anyChildMatch = true;
+      });
+    }
+
+    if (profileCards.length > 0) {
+      profileCards.forEach(card => {
+        const match = (card.textContent || "").toLowerCase().includes(query);
+        card.style.display = match ? "" : "none";
+        if (match) anyChildMatch = true;
+      });
+    }
+
+    if (metrics.length > 0) {
+      metrics.forEach(metric => {
+        const match = (metric.textContent || "").toLowerCase().includes(query);
+        metric.style.display = match ? "" : "none";
+        if (match) anyChildMatch = true;
+      });
+    }
+
+    const consoleEl = section.querySelector(".maintenance-console");
+    if (consoleEl && (consoleEl.textContent || "").toLowerCase().includes(query)) {
+      anyChildMatch = true;
+    }
+
+    if (rows.length === 0 && profileCards.length === 0 && metrics.length === 0 && !consoleEl) {
+      anyChildMatch = (section.textContent || "").toLowerCase().includes(query);
+    }
+
+    section.style.display = anyChildMatch ? "" : "none";
   });
 }
 
@@ -82,22 +321,45 @@ function initCategoryTabs() {
 async function fetchStateAndCatalog() {
   try {
     const [stateRes, catRes] = await Promise.all([
-      fetch("/api/state").then(r => r.json()),
-      fetch("/api/catalog").then(r => r.json()),
+      apiFetch("/api/state"),
+      apiFetch("/api/catalog"),
     ]);
     activeState = stateRes || {};
     appCatalog = catRes || {};
     renderGallery();
   } catch (err) {
     console.error("Failed to fetch state or catalog:", err);
+    showToast(`Lỗi tải trạng thái/danh mục: ${err.message}`, false, true);
   }
 }
 
 // -----------------------------------------------------------------------------
-// 4. Gallery Rendering (Cards with Visual Previews)
+// 4. Gallery Rendering & Preview Modal
 // -----------------------------------------------------------------------------
+function buildPreviewHtml(item, maxSwatches = 5) {
+  if (item.preview_svg) {
+    return item.preview_svg;
+  }
+  if (item.relative_url) {
+    const safeUrl = sanitizeUrl(item.relative_url);
+    if (safeUrl) {
+      return `<img src="${escapeHtml(safeUrl)}" alt="${escapeHtml(item.name || "")}" loading="lazy" />`;
+    }
+  }
+  if (item.palette) {
+    const bg = escapeHtml(sanitizeCssColor(item.palette.background));
+    const swatches = Array.isArray(item.palette.swatches) ? item.palette.swatches.slice(0, maxSwatches) : [];
+    return `<div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; justify-content:center;">
+      <span style="display:inline-block; width:28px; height:28px; border-radius:50%; background:${bg}; border:1px solid #444;"></span>
+      ${swatches.map(c => `<span style="display:inline-block; width:16px; height:24px; border-radius:4px; background:${escapeHtml(sanitizeCssColor(c))};"></span>`).join("")}
+    </div>`;
+  }
+  return `<span style="font-size:28px;">🎨</span>`;
+}
+
 function renderGallery() {
   const container = document.getElementById("gallery-container");
+  if (!container) return;
   container.innerHTML = "";
 
   const items = appCatalog[currentCategory] || [];
@@ -115,23 +377,11 @@ function renderGallery() {
       card.classList.add("active-card");
     }
 
-    // Generate Preview HTML / SVG
-    let previewContent = "";
-    if (item.preview_svg) {
-      previewContent = item.preview_svg;
-    } else if (item.relative_url) {
-      previewContent = `<img src="${item.relative_url}" alt="${item.name}" loading="lazy" />`;
-    } else if (item.palette) {
-      // Swatches preview
-      previewContent = `<div style="display:flex; gap:6px; align-items:center;">
-        <span style="display:inline-block; width:28px; height:28px; border-radius:50%; background:${item.palette.background}; border:1px solid #444;"></span>
-        ${(item.palette.swatches || []).slice(0, 5).map(c => `<span style="display:inline-block; width:16px; height:24px; border-radius:4px; background:${c};"></span>`).join("")}
-      </div>`;
-    } else {
-      previewContent = `<span style="font-size:24px;">🎨</span>`;
-    }
-
+    const previewContent = buildPreviewHtml(item, 5);
     const badgeLabel = item.position || item.theme_tag || item.style_type || (isActive ? "Đang chọn" : "Có sẵn");
+    const descText = item.description || "Tùy chọn giao diện tương thích hoàn toàn.";
+
+    card.dataset.searchText = `${item.name || ""} ${descText} ${item.id || ""} ${badgeLabel}`.toLowerCase();
 
     card.innerHTML = `
       <div class="card-preview-box">
@@ -139,37 +389,41 @@ function renderGallery() {
       </div>
       <div class="card-body">
         <div class="card-title-row">
-          <h4 title="${item.name}">${item.name}</h4>
-          <span class="card-badge ${isActive ? 'active-badge' : ''}">${badgeLabel}</span>
+          <h4 title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</h4>
+          <span class="card-badge ${isActive ? "active-badge" : ""}">${escapeHtml(badgeLabel)}</span>
         </div>
-        <p class="card-desc">${item.description || "Tùy chọn giao diện tương thích hoàn toàn."}</p>
+        <p class="card-desc">${escapeHtml(descText)}</p>
       </div>
       <div class="card-footer">
-        <button class="btn btn-secondary btn-preview-item" data-id="${item.id}">Xem thử</button>
-        <button class="btn btn-primary ${isActive ? 'btn-disabled' : ''} btn-apply-item" data-id="${item.id}">
-          ${isActive ? '✓ Đang dùng' : 'Áp dụng'}
+        <button class="btn btn-secondary btn-preview-item" data-id="${escapeHtml(item.id)}">Xem thử</button>
+        <button class="btn btn-primary ${isActive ? "btn-disabled" : ""} btn-apply-item" data-id="${escapeHtml(item.id)}" ${isActive ? "disabled" : ""}>
+          ${isActive ? "✓ Đang dùng" : "Áp dụng"}
         </button>
       </div>
     `;
 
-    // Bind Apply Action
     const applyBtn = card.querySelector(".btn-apply-item");
-    if (!isActive) {
+    if (!isActive && applyBtn) {
       applyBtn.addEventListener("click", () => {
         triggerApplyWorkflow(currentCategory, item);
       });
     }
 
     const previewBtn = card.querySelector(".btn-preview-item");
-    previewBtn.addEventListener("click", () => {
-      showToast(`Đang xem thử thông số: ${item.name}`);
-    });
+    if (previewBtn) {
+      previewBtn.addEventListener("click", () => {
+        openPreviewModal(currentCategory, item);
+      });
+    }
 
     container.appendChild(card);
   });
+
+  applyGlobalSearch();
 }
 
 function checkIsActive(category, itemId) {
+  if (!itemId) return false;
   if (category === "waybar_layouts") {
     return activeState.waybar_layout === itemId;
   } else if (category === "waybar_styles") {
@@ -181,45 +435,150 @@ function checkIsActive(category, itemId) {
   } else if (category === "hyprland_animations") {
     return activeState.hyprland_animation === itemId;
   } else if (category === "wallpapers") {
-    return activeState.current_wallpaper === itemId;
+    if (activeState.active_wallpaper !== undefined && activeState.active_wallpaper !== null) {
+      return activeState.active_wallpaper === itemId;
+    }
+    return activeState.current_wallpaper === itemId || activeState.wallpaper === itemId;
   }
   return false;
+}
+
+function initPreviewModalActions() {
+  const modal = document.getElementById("preview-modal");
+  const closeBtn = document.getElementById("preview-btn-close");
+  const applyBtn = document.getElementById("preview-btn-apply");
+  if (!modal) return;
+
+  const closePreview = () => {
+    modal.classList.remove("open");
+    previewingTarget = null;
+  };
+
+  if (closeBtn) {
+    closeBtn.addEventListener("click", closePreview);
+  }
+
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) {
+      closePreview();
+    }
+  });
+
+  if (applyBtn) {
+    applyBtn.addEventListener("click", () => {
+      if (!previewingTarget) return;
+      const target = previewingTarget;
+      closePreview();
+      triggerApplyWorkflow(target.category, target.item);
+    });
+  }
+}
+
+function openPreviewModal(category, item) {
+  const modal = document.getElementById("preview-modal");
+  const titleEl = document.getElementById("preview-item-title");
+  const subtitleEl = document.getElementById("preview-item-subtitle");
+  const stageEl = document.getElementById("preview-stage");
+  const metaEl = document.getElementById("preview-item-meta");
+  const applyBtn = document.getElementById("preview-btn-apply");
+
+  if (!modal || !stageEl || !metaEl) return;
+
+  const isActive = checkIsActive(category, item.id);
+  previewingTarget = { category, item };
+
+  if (titleEl) {
+    titleEl.textContent = item.name || item.id || "Xem trước";
+  }
+  if (subtitleEl) {
+    subtitleEl.textContent = `${toApiCategory(category)} • ${item.id || ""}`;
+  }
+
+  stageEl.innerHTML = buildPreviewHtml(item, 8);
+
+  const metaRows = [];
+  if (item.description) {
+    metaRows.push(`<div><strong>Mô tả:</strong> <span>${escapeHtml(item.description)}</span></div>`);
+  }
+  if (item.target_config) {
+    metaRows.push(`<div><strong>Tệp cấu hình đích:</strong> <code>${escapeHtml(item.target_config)}</code></div>`);
+  }
+  if (item.file_path) {
+    metaRows.push(`<div><strong>Nguồn:</strong> <code>${escapeHtml(item.file_path)}</code></div>`);
+  }
+  if (Array.isArray(item.modules) && item.modules.length > 0) {
+    metaRows.push(`<div><strong>Modules:</strong> <span>${item.modules.map(m => escapeHtml(m)).join(", ")}</span></div>`);
+  }
+  if (item.palette && item.palette.background) {
+    metaRows.push(`<div><strong>Nền / Chữ:</strong> <code>${escapeHtml(item.palette.background)}</code> / <code>${escapeHtml(item.palette.foreground || "")}</code></div>`);
+  }
+  if (metaRows.length === 0) {
+    metaRows.push(`<div><span>Không có thông tin bổ sung.</span></div>`);
+  }
+  metaEl.innerHTML = metaRows.join("");
+
+  if (applyBtn) {
+    applyBtn.disabled = isActive;
+    applyBtn.classList.toggle("btn-disabled", isActive);
+    applyBtn.textContent = isActive ? "✓ Đang dùng" : "Áp dụng cấu hình này";
+  }
+
+  modal.classList.add("open");
 }
 
 // -----------------------------------------------------------------------------
 // 5. 5-Stage Safe Apply Workflow
 // -----------------------------------------------------------------------------
 async function triggerApplyWorkflow(category, item) {
-  pendingApply = { category, item };
+  const apiCategory = toApiCategory(category);
+  pendingApply = { category, apiCategory, item };
+
+  const errorBanner = document.getElementById("modal-error-banner");
+  if (errorBanner) {
+    errorBanner.style.display = "none";
+    errorBanner.textContent = "";
+  }
 
   try {
     // Stage 1 & 2: Call analyze API to list exact affected files
-    const res = await fetch("/api/analyze", {
+    const impact = await apiFetch("/api/analyze", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        category: category,
+        category: apiCategory,
         item_id: item.id,
         source_path: item.file_path,
       }),
     });
-    const impact = await res.json();
 
     // Populate modal
-    document.getElementById("modal-item-name").innerText = `${item.name} (${category})`;
+    const modalName = document.getElementById("modal-item-name");
+    if (modalName) {
+      modalName.textContent = `${item.name} (${apiCategory})`;
+    }
     const list = document.getElementById("modal-affected-files");
-    list.innerHTML = "";
-
-    (impact.affected_files || []).forEach(f => {
-      const li = document.createElement("li");
-      li.innerHTML = `<strong>${f.action.toUpperCase()}</strong>: ${f.target} <br/><span style="color:var(--text-muted); font-size:11px;">&rarr; ${f.description}</span>`;
-      list.appendChild(li);
-    });
+    if (list) {
+      list.innerHTML = "";
+      (impact.affected_files || []).forEach(f => {
+        const li = document.createElement("li");
+        const actionEsc = escapeHtml((f.action || "").toUpperCase());
+        const targetEsc = escapeHtml(f.target || "");
+        const descEsc = escapeHtml(f.description || "");
+        const sourcePart = f.source
+          ? `<br/><span style="color:var(--text-muted); font-size:11px;">Nguồn: ${escapeHtml(f.source)}</span>`
+          : "";
+        li.innerHTML = `<strong>${actionEsc}</strong>: ${targetEsc} <br/><span style="color:var(--text-muted); font-size:11px;">&rarr; ${descEsc}</span>${sourcePart}`;
+        list.appendChild(li);
+      });
+    }
 
     // Show Modal
-    document.getElementById("confirm-modal").classList.add("open");
+    const modal = document.getElementById("confirm-modal");
+    if (modal) {
+      modal.classList.add("open");
+    }
   } catch (err) {
-    alert("Lỗi khi phân tích tác động tệp tin: " + err);
+    pendingApply = null;
+    showToast(`Lỗi khi phân tích tác động tệp tin: ${err.message}`, false, true);
   }
 }
 
@@ -227,117 +586,225 @@ function initModalActions() {
   const modal = document.getElementById("confirm-modal");
   const cancelBtn = document.getElementById("modal-btn-cancel");
   const confirmBtn = document.getElementById("modal-btn-confirm");
+  const errorBanner = document.getElementById("modal-error-banner");
 
-  cancelBtn.addEventListener("click", () => {
-    modal.classList.remove("open");
+  const closeConfirmModal = () => {
+    if (confirmBtn && confirmBtn.disabled) return;
+    if (modal) modal.classList.remove("open");
+    if (errorBanner) {
+      errorBanner.style.display = "none";
+      errorBanner.textContent = "";
+    }
     pendingApply = null;
-  });
+  };
 
-  confirmBtn.addEventListener("click", async () => {
-    if (!pendingApply) return;
-    confirmBtn.innerText = "Đang áp dụng...";
-    confirmBtn.disabled = true;
+  if (cancelBtn) {
+    cancelBtn.addEventListener("click", closeConfirmModal);
+  }
 
-    try {
-      // Stage 4 & 5: Apply change with explicit confirmation
-      const res = await fetch("/api/apply", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          category: pendingApply.category,
-          item_id: pendingApply.item.id,
-          source_path: pendingApply.item.file_path,
-          confirmed: true,
-        }),
-      });
-      const result = await res.json();
-
-      if (result.success) {
-        modal.classList.remove("open");
-        lastSnapshotId = result.snapshot_id;
-        showToast(`Đã áp dụng thành công: ${pendingApply.item.name}!`, true);
-        
-        // Refresh state
-        await fetchStateAndCatalog();
-      } else {
-        alert("Áp dụng thất bại: " + (result.message || "Lỗi không xác định"));
+  if (modal) {
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) {
+        closeConfirmModal();
       }
-    } catch (err) {
-      alert("Lỗi kết nối tới Safety Engine: " + err);
-    } finally {
-      confirmBtn.innerText = "Xác Nhận Áp Dụng";
-      confirmBtn.disabled = false;
-      pendingApply = null;
+    });
+  }
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      const previewModal = document.getElementById("preview-modal");
+      if (previewModal && previewModal.classList.contains("open")) {
+        previewModal.classList.remove("open");
+        previewingTarget = null;
+      } else if (modal && modal.classList.contains("open")) {
+        closeConfirmModal();
+      }
     }
   });
+
+  if (confirmBtn) {
+    confirmBtn.addEventListener("click", async () => {
+      if (!pendingApply) return;
+      confirmBtn.textContent = "Đang áp dụng...";
+      confirmBtn.disabled = true;
+      if (errorBanner) {
+        errorBanner.style.display = "none";
+        errorBanner.textContent = "";
+      }
+
+      try {
+        const apiCategory = pendingApply.apiCategory || toApiCategory(pendingApply.category);
+        // Stage 4 & 5: Apply change with explicit confirmation
+        const result = await apiFetch("/api/apply", {
+          method: "POST",
+          body: JSON.stringify({
+            category: apiCategory,
+            item_id: pendingApply.item.id,
+            source_path: pendingApply.item.file_path,
+            confirmed: true,
+          }),
+        });
+
+        const appliedName = pendingApply.item.name;
+        lastSnapshotId = result.snapshot_id || null;
+        pendingApply = null;
+        if (modal) modal.classList.remove("open");
+        showToast(`Đã áp dụng thành công: ${appliedName}!`, Boolean(lastSnapshotId));
+
+        await fetchStateAndCatalog();
+      } catch (err) {
+        // Keep modal open and pendingApply intact so user can retry
+        if (errorBanner) {
+          errorBanner.textContent = `Áp dụng thất bại: ${err.message}. Bạn có thể thử lại hoặc bấm Hủy bỏ.`;
+          errorBanner.style.display = "block";
+        }
+        showToast(`Áp dụng thất bại: ${err.message}`, false, true);
+      } finally {
+        confirmBtn.textContent = "Xác Nhận Áp Dụng";
+        confirmBtn.disabled = false;
+      }
+    });
+  }
 
   // Rollback Undo Button in Toast
-  document.getElementById("toast-btn-undo").addEventListener("click", async () => {
-    if (!lastSnapshotId) return;
-    try {
-      const res = await fetch("/api/rollback", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ snapshot_id: lastSnapshotId }),
-      });
-      const result = await res.json();
-      if (result.success) {
-        showToast("Đã hoàn tác (Rollback) thành công trạng thái trước đó!");
-        await fetchStateAndCatalog();
-      } else {
-        alert("Lỗi hoàn tác: " + result.message);
+  const undoBtn = document.getElementById("toast-btn-undo");
+  if (undoBtn) {
+    undoBtn.addEventListener("click", async () => {
+      if (!lastSnapshotId) return;
+      if (!confirm(`Bạn có chắc muốn hoàn tác về snapshot: ${lastSnapshotId}?`)) return;
+
+      undoBtn.disabled = true;
+      try {
+        const result = await apiFetch("/api/rollback", {
+          method: "POST",
+          body: JSON.stringify({ snapshot_id: lastSnapshotId }),
+        });
+        lastSnapshotId = null;
+        showToast(result.message || "Đã hoàn tác (Rollback) thành công trạng thái trước đó!");
+        await Promise.all([fetchStateAndCatalog(), fetchSnapshots()]);
+      } catch (err) {
+        showToast(`Lỗi rollback: ${err.message}`, false, true);
+      } finally {
+        undoBtn.disabled = false;
       }
-    } catch (err) {
-      alert("Lỗi rollback: " + err);
-    }
-  });
+    });
+  }
 }
 
 // -----------------------------------------------------------------------------
 // 6. Snapshots List & Manual Backup
 // -----------------------------------------------------------------------------
+function initBackupButtons() {
+  const btnManualBackup = document.getElementById("btn-create-manual-backup");
+  if (btnManualBackup) {
+    const defaultLabel = btnManualBackup.textContent || "Tạo bản sao lưu mới";
+    btnManualBackup.addEventListener("click", () => runSystemBackup(btnManualBackup, defaultLabel));
+  }
+
+  const btnInstantBackup = document.getElementById("btn-instant-backup");
+  if (btnInstantBackup) {
+    const defaultLabel = btnInstantBackup.textContent || "Tạo Snapshot Ngay";
+    btnInstantBackup.addEventListener("click", () => runSystemBackup(btnInstantBackup, defaultLabel));
+  }
+}
+
+async function runSystemBackup(buttonEl, defaultLabel) {
+  const consoleEl = document.getElementById("maintenance-console");
+  if (buttonEl) {
+    buttonEl.disabled = true;
+    buttonEl.textContent = "Đang tạo sao lưu...";
+  }
+  if (consoleEl) {
+    consoleEl.textContent = ":: [Snapshot Backup] Đang thực thi scripts/03-backup.sh để tạo bản snapshot an toàn...\n";
+  }
+
+  try {
+    const res = await apiFetch("/api/system/backup", { method: "POST" });
+    if (consoleEl) {
+      if (res.log) consoleEl.textContent += res.log;
+      consoleEl.textContent += `\n✓ Đã tạo thành công bản snapshot: ${res.backup_dir || "latest"}\n`;
+    }
+    showToast(res.message || "Tạo bản snapshot sao lưu thành công!");
+    await Promise.all([fetchSnapshots(), fetchSystemStatus()]);
+  } catch (err) {
+    if (consoleEl) {
+      if (err.data && err.data.log) consoleEl.textContent += err.data.log;
+      consoleEl.textContent += `\n❌ Lỗi tạo sao lưu: ${err.message}\n`;
+    }
+    showToast(`Lỗi tạo sao lưu: ${err.message}`, false, true);
+  } finally {
+    if (buttonEl) {
+      buttonEl.disabled = false;
+      buttonEl.textContent = defaultLabel;
+    }
+  }
+}
+
 async function fetchSnapshots() {
   const container = document.getElementById("snapshots-list-container");
+  if (!container) return;
   try {
-    const res = await fetch("/api/snapshots").then(r => r.json());
-    if (!res || res.length === 0) {
+    const res = await apiFetch("/api/snapshots");
+    if (!Array.isArray(res) || res.length === 0) {
       container.innerHTML = `<p style="color: var(--text-muted); font-size: 13px;">Chưa có bản snapshot sao lưu nào được ghi nhận.</p>`;
       return;
     }
 
-    container.innerHTML = res.map(snap => `
-      <div class="settings-row">
-        <div class="row-label">
-          <h4>${snap.snapshot_id}</h4>
-          <p>Tạo lúc: ${snap.created_at} • ${snap.backed_up_files.length} tệp đã sao lưu</p>
+    container.innerHTML = res.map(snap => {
+      const files = Array.isArray(snap.backed_up_files) ? snap.backed_up_files : [];
+      const newFiles = Array.isArray(snap.non_existent_files) ? snap.non_existent_files : [];
+      const fileNames = files
+        .map(f => (typeof f === "string" ? f : (f && (f.original_path || f.backup_file)) || ""))
+        .filter(Boolean)
+        .map(f => escapeHtml(f));
+      const filesSummary = fileNames.length > 0
+        ? `<div style="font-size:11px; color:var(--text-muted); margin-top:3px; font-family:monospace;">${fileNames.join(", ")}</div>`
+        : "";
+      const snapIdEsc = escapeHtml(snap.snapshot_id || "");
+      const createdEsc = escapeHtml(snap.created_at || "--");
+      const countText = `${files.length} tệp đã sao lưu${newFiles.length ? ` • ${newFiles.length} tệp tạo mới` : ""}`;
+
+      return `
+        <div class="settings-row">
+          <div class="row-label">
+            <h4>${snapIdEsc}</h4>
+            <p>Tạo lúc: ${createdEsc} • ${escapeHtml(countText)}</p>
+            ${filesSummary}
+          </div>
+          <button class="btn btn-secondary btn-restore-snap" data-id="${snapIdEsc}">Khôi phục bản này</button>
         </div>
-        <button class="btn btn-secondary btn-restore-snap" data-id="${snap.snapshot_id}">Khôi phục bản này</button>
-      </div>
-    `).join("");
+      `;
+    }).join("");
 
     container.querySelectorAll(".btn-restore-snap").forEach(btn => {
       btn.addEventListener("click", async () => {
         const snapId = btn.getAttribute("data-id");
-        if (confirm(`Bạn có chắc muốn khôi phục lại cấu hình từ snapshot: ${snapId}?`)) {
-          const r = await fetch("/api/rollback", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ snapshot_id: snapId }),
-          }).then(res => res.json());
+        if (!snapId) return;
+        if (!confirm(`Bạn có chắc muốn khôi phục lại cấu hình từ snapshot: ${snapId}?`)) return;
 
-          if (r.success) {
-            showToast("Đã khôi phục thành công snapshot: " + snapId);
-            fetchStateAndCatalog();
-            fetchSnapshots();
-          } else {
-            alert("Khôi phục thất bại: " + r.message);
-          }
+        const origLabel = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = "Đang khôi phục...";
+        try {
+          const r = await apiFetch("/api/rollback", {
+            method: "POST",
+            body: JSON.stringify({ snapshot_id: snapId }),
+          });
+          showToast(r.message || `Đã khôi phục thành công snapshot: ${snapId}`);
+          await Promise.all([fetchStateAndCatalog(), fetchSnapshots()]);
+        } catch (err) {
+          showToast(`Khôi phục thất bại: ${err.message}`, false, true);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = origLabel;
         }
       });
     });
 
+    applyGlobalSearch();
   } catch (err) {
-    container.innerHTML = `<p style="color: #f2b8b5; font-size: 13px;">Lỗi khi tải lịch sử snapshot: ${err}</p>`;
+    container.innerHTML = `<p style="color: #f2b8b5; font-size: 13px;">Lỗi khi tải lịch sử snapshot: ${escapeHtml(err.message)}</p>`;
+    showToast(`Lỗi khi tải lịch sử snapshot: ${err.message}`, false, true);
   }
 }
 
@@ -345,11 +812,17 @@ async function fetchSnapshots() {
 // 7. Toast Notification Utility
 // -----------------------------------------------------------------------------
 let toastTimer = null;
-function showToast(message, showUndo = false) {
+function showToast(message, showUndo = false, isError = false) {
   const toast = document.getElementById("toast-notify");
-  document.getElementById("toast-message").innerText = message;
+  const msgEl = document.getElementById("toast-message");
   const undoBtn = document.getElementById("toast-btn-undo");
-  undoBtn.style.display = showUndo ? "inline-block" : "none";
+  if (!toast || !msgEl) return;
+
+  msgEl.textContent = message;
+  toast.classList.toggle("toast-error", Boolean(isError));
+  if (undoBtn) {
+    undoBtn.style.display = showUndo ? "inline-block" : "none";
+  }
 
   toast.classList.add("show");
   clearTimeout(toastTimer);
@@ -382,23 +855,20 @@ function initKeybindsAndMaintenance() {
   if (btnApplyUpdate) {
     btnApplyUpdate.addEventListener("click", applySystemUpdate);
   }
-
-  const btnInstantBackup = document.getElementById("btn-instant-backup");
-  if (btnInstantBackup) {
-    btnInstantBackup.addEventListener("click", triggerInstantBackup);
-  }
 }
 
 async function fetchKeybinds() {
   const container = document.getElementById("keybinds-container");
+  if (!container) return;
   try {
-    const res = await fetch("/api/keybinds").then(r => r.json());
-    allKeybinds = res.keybinds || [];
-    allKeybindCategories = res.categories || [];
+    const res = await apiFetch("/api/keybinds");
+    allKeybinds = (res && res.keybinds) || [];
+    allKeybindCategories = (res && res.categories) || [];
     renderKeybindCategoryPills();
     renderKeybinds();
   } catch (err) {
-    container.innerHTML = `<p style="color: #f2b8b5; font-size: 13px;">Lỗi khi tải danh sách phím tắt: ${err}</p>`;
+    container.innerHTML = `<p style="color: #f2b8b5; font-size: 13px;">Lỗi khi tải danh sách phím tắt: ${escapeHtml(err.message)}</p>`;
+    showToast(`Lỗi khi tải danh sách phím tắt: ${err.message}`, false, true);
   }
 }
 
@@ -435,6 +905,7 @@ function renderKeybindCategoryPills() {
 function renderKeybinds() {
   const container = document.getElementById("keybinds-container");
   const countBadge = document.getElementById("keybinds-count-badge");
+  if (!container) return;
   const query = (document.getElementById("keybinds-search")?.value || "").toLowerCase().trim();
 
   let filtered = allKeybinds;
@@ -464,10 +935,11 @@ function renderKeybinds() {
 
   container.innerHTML = filtered.map(b => {
     const keyBadges = (b.keys || []).map(k => `<kbd class="key-badge">${escapeHtml(k)}</kbd>`).join('<span class="key-separator">+</span>');
-    const dispatcher = b.dispatcher ? `<span class="dispatcher-badge">${escapeHtml(b.dispatcher)}</span>` : '';
-    const desc = escapeHtml(b.description || b.dispatcher || 'Phím tắt');
-    const cmd = b.command ? `<div class="keybind-cmd">${escapeHtml(b.command)}</div>` : '';
-    const category = escapeHtml(b.category || '');
+    const dispatcher = b.dispatcher ? `<span class="dispatcher-badge">${escapeHtml(b.dispatcher)}</span>` : "";
+    const desc = escapeHtml(b.description || b.dispatcher || "Phím tắt");
+    const cmdText = b.command || b.args || "";
+    const cmd = cmdText ? `<div class="keybind-cmd">${escapeHtml(cmdText)}</div>` : "";
+    const category = escapeHtml(b.category || "");
 
     return `
       <div class="keybind-card">
@@ -483,94 +955,162 @@ function renderKeybinds() {
       </div>
     `;
   }).join("");
-}
 
-function escapeHtml(str) {
-  if (!str) return "";
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+  container.querySelectorAll(".keybind-card").forEach((card, idx) => {
+    const b = filtered[idx];
+    if (b) {
+      card.dataset.searchText = `${b.description || ""} ${b.combo_display || ""} ${b.command || b.args || ""} ${b.dispatcher || ""} ${b.category || ""}`.toLowerCase();
+    }
+  });
+
+  applyGlobalSearch();
 }
 
 async function fetchSystemStatus() {
   try {
-    const res = await fetch("/api/system/status").then(r => r.json());
-    document.getElementById("maint-git-branch").textContent = res.git_branch || "main";
-    document.getElementById("maint-git-commit").textContent = res.git_hash || (res.git_commit ? res.git_commit.slice(0, 8) : "--");
-    document.getElementById("maint-config-status").textContent = res.dirty ? "Có thay đổi (Dirty)" : "Sạch (Clean)";
-    document.getElementById("maint-last-backup").textContent = res.last_backup || "Chưa có";
+    const res = await apiFetch("/api/system/status");
+    const branchEl = document.getElementById("maint-git-branch");
+    const commitEl = document.getElementById("maint-git-commit");
+    const statusEl = document.getElementById("maint-config-status");
+    const backupEl = document.getElementById("maint-last-backup");
+
+    if (branchEl) branchEl.textContent = res.git_branch || "main";
+    if (commitEl) commitEl.textContent = res.git_hash || (res.git_commit ? res.git_commit.slice(0, 8) : "--");
+    if (statusEl) statusEl.textContent = res.dirty ? "Có thay đổi (Dirty)" : "Sạch (Clean)";
+    if (backupEl) backupEl.textContent = res.last_backup || "Chưa có";
   } catch (err) {
     console.error("Failed to fetch system status:", err);
+    showToast(`Lỗi tải trạng thái hệ thống: ${err.message}`, false, true);
   }
 }
 
 async function checkSystemUpdate() {
   const consoleEl = document.getElementById("maintenance-console");
-  consoleEl.textContent = ":: [Update Check] Đang kiểm tra bản cập nhật từ kho lưu trữ Git...\n";
+  const btn = document.getElementById("btn-check-update");
+  const origLabel = btn ? btn.textContent : "";
+
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Đang kiểm tra...";
+  }
+  if (consoleEl) {
+    consoleEl.textContent = ":: [Update Check] Đang kiểm tra bản cập nhật từ kho lưu trữ Git...\n";
+  }
+
   try {
-    const res = await fetch("/api/system/update/check").then(r => r.json());
-    consoleEl.textContent += `Commit hiện tại: ${res.current_commit || 'N/A'}\n`;
-    consoleEl.textContent += `Trạng thái: ${res.message || 'Hệ thống đã cập nhật.'}\n`;
-    showToast(res.message || "Kiểm tra cập nhật hoàn tất.");
+    const res = await apiFetch("/api/system/update/check");
+    const cannotCheck = res.checked === false || res.update_available === null || res.update_available === undefined;
+
+    if (consoleEl) {
+      consoleEl.textContent += `Commit hiện tại: ${res.current_commit || "N/A"}\n`;
+      if (res.remote_commit) {
+        consoleEl.textContent += `Commit từ xa: ${res.remote_commit}\n`;
+      }
+      if (typeof res.behind === "number") {
+        consoleEl.textContent += `Số commit phía sau: ${res.behind}\n`;
+      }
+    }
+
+    let statusText = "";
+    if (cannotCheck) {
+      statusText = `Không kiểm tra được${res.message ? ` (${res.message})` : ""}`;
+      if (consoleEl) consoleEl.textContent += `Trạng thái: ${statusText}\n`;
+      showToast(statusText, false, true);
+    } else if (res.update_available) {
+      const behindText = typeof res.behind === "number" && res.behind > 0 ? ` (tụt ${res.behind} commit)` : "";
+      statusText = `Có bản cập nhật mới${behindText}${res.message ? `: ${res.message}` : ""}`;
+      if (consoleEl) consoleEl.textContent += `Trạng thái: ${statusText}\n`;
+      showToast(statusText);
+    } else {
+      statusText = res.message || "Hệ thống đang ở phiên bản mới nhất.";
+      if (consoleEl) consoleEl.textContent += `Trạng thái: ${statusText}\n`;
+      showToast(statusText);
+    }
   } catch (err) {
-    consoleEl.textContent += `Lỗi khi kiểm tra: ${err}\n`;
+    if (consoleEl) {
+      consoleEl.textContent += `Không kiểm tra được: ${err.message}\n`;
+    }
+    showToast(`Không kiểm tra được: ${err.message}`, false, true);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = origLabel || "Kiểm tra bản cập nhật";
+    }
   }
 }
 
 async function applySystemUpdate() {
   const consoleEl = document.getElementById("maintenance-console");
-  consoleEl.textContent = ":: [Update Apply] Đang tiến hành chạy mô phỏng cập nhật (Dry-run)...\n";
-  try {
-    const res = await fetch("/api/system/update/apply", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ confirmed: true, dry_run: true })
-    }).then(r => r.json());
+  const btn = document.getElementById("btn-apply-update");
+  const origLabel = btn ? btn.textContent : "";
 
-    if (res.log) {
-      consoleEl.textContent += res.log;
-    }
-    if (res.success) {
-      consoleEl.textContent += "\n✓ Quá trình kiểm tra cập nhật hoàn tất an toàn!\n";
-      showToast("Đã mô phỏng cập nhật thành công.");
-    } else {
-      consoleEl.textContent += "\n⚠️ Cập nhật báo lỗi hoặc cảnh báo.\n";
-    }
-  } catch (err) {
-    consoleEl.textContent += `Lỗi khi thực thi cập nhật: ${err}\n`;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Đang kiểm tra (Dry-run)...";
   }
-}
+  if (consoleEl) {
+    consoleEl.textContent = ":: [Update Preview] Đang chạy mô phỏng cập nhật (dry-run)...\n";
+  }
 
-async function triggerInstantBackup() {
-  const consoleEl = document.getElementById("maintenance-console");
-  consoleEl.textContent = ":: [Snapshot Backup] Đang thực thi scripts/03-backup.sh để tạo bản snapshot an toàn...\n";
   try {
-    const res = await fetch("/api/system/backup", {
+    // Step 1: Preview update changes without applying
+    const previewRes = await apiFetch("/api/system/update/apply", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({})
-    }).then(r => r.json());
+      body: JSON.stringify({ confirmed: false, dry_run: true }),
+    });
 
-    if (res.log) {
-      consoleEl.textContent += res.log;
+    if (consoleEl && previewRes.log) {
+      consoleEl.textContent += previewRes.log + "\n";
     }
-    if (res.success) {
-      consoleEl.textContent += `\n✓ Đã tạo thành công bản snapshot: ${res.backup_dir}\n`;
-      showToast("Tạo bản snapshot sao lưu thành công!");
-      fetchSystemStatus();
-    } else {
-      consoleEl.textContent += `\n❌ Lỗi tạo sao lưu: ${res.message || 'Thao tác không thành công.'}\n`;
+
+    // Step 2: Require explicit confirmation before executing real update
+    const proceed = confirm(
+      "Đã hoàn tất chạy thử (dry-run). Hãy xem nhật ký tại Activity Console.\n\nBạn có chắc chắn muốn áp dụng cập nhật hệ thống thật ngay bây giờ?"
+    );
+    if (!proceed) {
+      if (consoleEl) {
+        consoleEl.textContent += "\n:: [Update Apply] Người dùng đã hủy thao tác cập nhật.\n";
+      }
+      showToast("Đã hủy áp dụng cập nhật.");
+      return;
     }
+
+    if (btn) {
+      btn.textContent = "Đang áp dụng cập nhật...";
+    }
+    if (consoleEl) {
+      consoleEl.textContent += "\n:: [Update Apply] Đang tiến hành cập nhật hệ thống...\n";
+    }
+
+    const applyRes = await apiFetch("/api/system/update/apply", {
+      method: "POST",
+      body: JSON.stringify({ confirmed: true, dry_run: false }),
+    });
+
+    if (consoleEl) {
+      if (applyRes.log) consoleEl.textContent += applyRes.log + "\n";
+      consoleEl.textContent += "\n✓ Cập nhật hệ thống thành công!\n";
+    }
+    showToast(applyRes.message || "Cập nhật hệ thống thành công!");
+    await Promise.all([fetchSystemStatus(), fetchStateAndCatalog()]);
   } catch (err) {
-    consoleEl.textContent += `Lỗi khi tạo sao lưu: ${err}\n`;
+    if (consoleEl) {
+      if (err.data && err.data.log) {
+        consoleEl.textContent += err.data.log + "\n";
+      }
+      consoleEl.textContent += `\n❌ Cập nhật thất bại: ${err.message}\n`;
+    }
+    showToast(`Cập nhật thất bại: ${err.message}`, false, true);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = origLabel || "Cập nhật hệ thống";
+    }
   }
 }
 
 // -----------------------------------------------------------------------------
-// 7. Power & Battery Management View
+// 9. Power & Battery Management View
 // -----------------------------------------------------------------------------
 function initPowerManagement() {
   const cardEco = document.getElementById("card-profile-eco");
@@ -605,7 +1145,7 @@ function initPowerManagement() {
 
 async function fetchPowerStatus() {
   try {
-    const data = await fetch("/api/power/status").then(r => r.json());
+    const data = await apiFetch("/api/power/status");
     if (!data) return;
 
     // Battery gauge
@@ -660,11 +1200,7 @@ async function fetchPowerStatus() {
     ["eco", "balanced", "turbo"].forEach(p => {
       const card = document.getElementById(`card-profile-${p}`);
       if (card) {
-        if (p === curProfile) {
-          card.classList.add("active");
-        } else {
-          card.classList.remove("active");
-        }
+        card.classList.toggle("active", p === curProfile);
       }
     });
 
@@ -675,62 +1211,53 @@ async function fetchPowerStatus() {
     }
   } catch (err) {
     console.error("Failed to fetch power status:", err);
+    showToast(`Lỗi tải trạng thái nguồn điện: ${err.message}`, false, true);
   }
 }
 
 async function setPowerProfile(profile) {
   try {
-    const res = await fetch("/api/power/profile", {
+    const res = await apiFetch("/api/power/profile", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ profile: profile })
-    }).then(r => r.json());
-
-    if (res.success) {
-      showToast(res.message || `Đã chuyển sang profile ${profile}!`);
-      fetchPowerStatus();
-    } else {
-      showToast(`Lỗi: ${res.message || "Không thể đặt profile."}`);
-    }
+      body: JSON.stringify({ profile }),
+    });
+    showToast(res.message || `Đã chuyển sang profile ${profile}!`);
+    await fetchPowerStatus();
   } catch (err) {
-    showToast(`Lỗi kết nối khi đổi profile: ${err}`);
+    showToast(`Lỗi: ${err.message}`, false, true);
   }
 }
 
 async function toggleAuto60Hz(enabled) {
+  const toggleAuto = document.getElementById("toggle-auto-60hz");
+  if (toggleAuto) toggleAuto.disabled = true;
   try {
-    const res = await fetch("/api/power/config", {
+    const res = await apiFetch("/api/power/config", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ auto_60hz: enabled })
-    }).then(r => r.json());
-
-    if (res.success) {
-      showToast(enabled ? "Đã bật tự động hạ 60Hz khi dùng pin" : "Đã tắt tự động 60Hz khi dùng pin");
-      fetchPowerStatus();
-    } else {
-      showToast(`Lỗi: ${res.message || "Không thể lưu cài đặt."}`);
-    }
+      body: JSON.stringify({ auto_60hz: enabled }),
+    });
+    showToast(res.message || (enabled ? "Đã bật tự động hạ 60Hz khi dùng pin" : "Đã tắt tự động 60Hz khi dùng pin"));
+    await fetchPowerStatus();
   } catch (err) {
-    showToast(`Lỗi kết nối khi lưu cài đặt: ${err}`);
+    if (toggleAuto) toggleAuto.checked = !enabled;
+    showToast(`Lỗi: ${err.message}`, false, true);
+  } finally {
+    if (toggleAuto) toggleAuto.disabled = false;
   }
 }
 
 async function toggleRefreshRateManual() {
+  const btnToggleHz = document.getElementById("btn-manual-toggle-hz");
+  if (btnToggleHz) btnToggleHz.disabled = true;
   try {
-    const res = await fetch("/api/power/toggle-hz", {
+    const res = await apiFetch("/api/power/toggle-hz", {
       method: "POST",
-      headers: { "Content-Type": "application/json" }
-    }).then(r => r.json());
-
-    if (res.success) {
-      showToast(res.message || `Đã chuyển đổi tần số quét sang ${res.current_hz}Hz!`);
-      fetchPowerStatus();
-    } else {
-      showToast(`Lỗi: ${res.message || "Không thể chuyển đổi tần số quét."}`);
-    }
+    });
+    showToast(res.message || `Đã chuyển đổi tần số quét sang ${res.current_hz}Hz!`);
+    await fetchPowerStatus();
   } catch (err) {
-    showToast(`Lỗi khi chuyển đổi tần số quét: ${err}`);
+    showToast(`Lỗi: ${err.message}`, false, true);
+  } finally {
+    if (btnToggleHz) btnToggleHz.disabled = false;
   }
 }
-

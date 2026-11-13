@@ -5,36 +5,64 @@ Discovers available Waybar layouts/styles, Rofi themes, Kitty color palettes,
 Hyprland animations, and wallpapers. Extensible via ComponentRegistry.
 """
 
+import json
 import os
 import re
-import json
+import urllib.parse
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Any, Dict, List, Optional
+
+
+_JSONC_COMMENT_RE = re.compile(
+    r'"(?:\\.|[^"\\])*"|//[^\n]*|/\*.*?\*/',
+    re.DOTALL,
+)
+_JSONC_TRAILING_COMMA_RE = re.compile(
+    r'"(?:\\.|[^"\\])*"|(,)(?=\s*[}\]])',
+    re.DOTALL,
+)
+
+
+def strip_jsonc_comments(content: str) -> str:
+    """Strips // and /* */ comments and trailing commas outside JSON string literals."""
+    no_comments = _JSONC_COMMENT_RE.sub(
+        lambda m: m.group(0) if m.group(0).startswith('"') else "",
+        content,
+    )
+    return _JSONC_TRAILING_COMMA_RE.sub(
+        lambda m: "" if m.group(1) else m.group(0),
+        no_comments,
+    )
+
 
 class DiscoveryEngine:
-    def __init__(self, workspace_root: Optional[str] = None):
+    def __init__(self, workspace_root: Optional[str] = None, target_home: Optional[str] = None):
         if workspace_root:
             self.root = Path(workspace_root).resolve()
         else:
-            # Default to repo root (2 levels above core/)
             self.root = Path(__file__).resolve().parent.parent.parent
-            
+
+        if target_home:
+            self.home = Path(target_home).resolve()
+        else:
+            self.home = Path(os.environ.get("HOME", str(Path.home()))).resolve()
+
         cand_config = self.root / "config"
         if cand_config.exists() and (cand_config / "waybar").exists():
             self.config_dir = cand_config
-        elif (Path.home() / ".config" / "waybar").exists():
-            self.config_dir = Path.home() / ".config"
+        elif (self.home / ".config" / "waybar").exists():
+            self.config_dir = self.home / ".config"
         else:
             self.config_dir = cand_config
 
         cand_assets = self.root / "assets"
         if cand_assets.exists() and (cand_assets / "wallpapers").exists():
             self.assets_dir = cand_assets
-        elif (Path.home() / ".local/share/yusei-hypr/assets").exists():
-            self.assets_dir = Path.home() / ".local/share/yusei-hypr/assets"
+        elif (self.home / ".local" / "share" / "yusei-hypr" / "assets").exists():
+            self.assets_dir = self.home / ".local" / "share" / "yusei-hypr" / "assets"
         else:
             self.assets_dir = cand_assets
-        
+
         # Registry of extensible component scanners
         self._scanners = {
             "waybar_layouts": self.discover_waybar_layouts,
@@ -72,8 +100,7 @@ class DiscoveryEngine:
         for path in sorted(layouts_dir.iterdir()):
             if path.is_file() and not path.name.startswith("."):
                 name = path.name
-                
-                # Determine bar placement badge
+
                 position = "TOP"
                 if "[BOT" in name or "BOT &" in name:
                     position = "BOTTOM"
@@ -85,14 +112,12 @@ class DiscoveryEngine:
                     position = "SPLIT"
 
                 is_end4 = "End-4" in name or "Material 3" in name
-                
-                # Extract modules if JSON format (skipped in fast_scan mode for instant GUI startup)
+
                 modules_summary = ["workspaces", "clock", "audio", "battery", "network"]
                 if not fast:
                     try:
                         content = path.read_text(encoding="utf-8", errors="ignore")
-                        cleaned = re.sub(r'//.*', '', content)
-                        cleaned = re.sub(r'/\*.*?\*/', '', cleaned, flags=re.DOTALL)
+                        cleaned = strip_jsonc_comments(content)
                         data = json.loads(cleaned)
                         extracted = []
                         for key in ["modules-left", "modules-center", "modules-right"]:
@@ -128,7 +153,7 @@ class DiscoveryEngine:
             if path.is_file() and path.suffix == ".css":
                 name = path.stem
                 is_end4 = "End-4" in name or "Material 3" in name
-                
+
                 theme_tag = "Modern"
                 if "Translucent" in name:
                     theme_tag = "Translucent"
@@ -160,10 +185,23 @@ class DiscoveryEngine:
         """Scans config/rofi/themes/ and config/rofi/ for launcher layouts."""
         themes_dir = self.config_dir / "rofi" / "themes"
         results = []
-        
-        # Add primary End-4 default launcher
+
+        # Prefer actual theme file themes/End-4-Material3.rasi over config.rasi
+        end4_theme = themes_dir / "End-4-Material3.rasi"
         main_rofi = self.config_dir / "rofi" / "config.rasi"
-        if main_rofi.exists():
+        if end4_theme.exists() and end4_theme.is_file():
+            results.append({
+                "id": "End-4-Material3",
+                "name": "End-4 Material 3 (Centered Card)",
+                "raw_name": end4_theme.name,
+                "category": "rofi_theme",
+                "style_type": "Centered Card",
+                "is_default": True,
+                "file_path": str(end4_theme),
+                "description": "Material 3 dual-column floating launcher card with 16px radius and search pill.",
+                "target_config": "~/.config/rofi/config.rasi",
+            })
+        elif main_rofi.exists():
             results.append({
                 "id": "End-4-Material3",
                 "name": "End-4 Material 3 (Centered Card)",
@@ -185,7 +223,7 @@ class DiscoveryEngine:
                     style_type = "Grid"
                     if "Win11" in name:
                         style_type = "Windows 11 List"
-                    elif "FullScreen" in name:
+                    elif "FullScreen" in name or "Fullscreen" in name:
                         style_type = "Fullscreen Overlay"
                     elif "Vertical" in name:
                         style_type = "Vertical Dock"
@@ -213,18 +251,17 @@ class DiscoveryEngine:
             return results
 
         fast = getattr(self, "_fast_scan", False)
-        color_regex = None if fast else re.compile(r'^\s*(background|foreground|color[0-7])\s+([#0-9a-fA-F]{6,8})', re.IGNORECASE)
+        color_regex = None if fast else re.compile(r"^\s*(background|foreground|color[0-7])\s+([#0-9a-fA-F]{6,8})", re.IGNORECASE)
 
         for path in sorted(themes_dir.iterdir()):
             if path.is_file() and path.suffix == ".conf":
                 name = path.stem
                 is_wallust = "01-Wallust" in name
-                
-                # Extract color swatches (skipped in fast_scan mode for instant GUI startup)
+
                 palette = {
                     "background": "#141316",
                     "foreground": "#e3e2e6",
-                    "swatches": ["#1f1f23", "#f2b8b5", "#b4e09f", "#fce788", "#a8c7fa", "#d3bbff", "#99e7eb", "#e3e2e6"]
+                    "swatches": ["#1f1f23", "#f2b8b5", "#b4e09f", "#fce788", "#a8c7fa", "#d3bbff", "#99e7eb", "#e3e2e6"],
                 }
                 if not fast and color_regex is not None:
                     try:
@@ -268,7 +305,7 @@ class DiscoveryEngine:
             if path.is_file() and path.suffix == ".conf":
                 name = path.stem
                 is_end4 = "END-4" in name
-                
+
                 description = "Default fluid bezier curves"
                 if "END-4" in name:
                     description = "End-4 Expressive Material 3 fast physics curves."
@@ -291,33 +328,38 @@ class DiscoveryEngine:
 
     def discover_wallpapers(self) -> List[Dict[str, Any]]:
         """Scans assets/wallpapers/ and user picture folders for high-resolution backgrounds."""
-        search_dirs = [self.assets_dir / "wallpapers"]
-        home_wp = Path.home() / "Pictures" / "wallpapers"
-        if home_wp.exists() and home_wp not in search_dirs:
-            search_dirs.append(home_wp)
-        hypr_wp = Path.home() / ".config" / "hypr" / "wallpapers"
-        if hypr_wp.exists() and hypr_wp not in search_dirs:
-            search_dirs.append(hypr_wp)
+        search_dirs: List[Path] = []
+        for cand in (
+            self.assets_dir / "wallpapers",
+            self.home / "Pictures" / "wallpapers",
+            self.home / ".config" / "hypr" / "wallpapers",
+        ):
+            if cand.exists() and cand.resolve() not in {d.resolve() for d in search_dirs}:
+                search_dirs.append(cand)
 
         results = []
-        seen = set()
+        seen_rel_paths = set()
         for wp_dir in search_dirs:
-            if not wp_dir.exists():
-                continue
             for path in sorted(wp_dir.rglob("*")):
-                if path.is_file() and path.suffix.lower() in [".jpg", ".jpeg", ".png", ".webp"]:
-                    if path.name in seen:
+                if path.is_file() and path.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}:
+                    rel_path = path.relative_to(wp_dir)
+                    rel_posix = rel_path.as_posix()
+                    if rel_posix in seen_rel_paths:
                         continue
-                    seen.add(path.name)
+                    seen_rel_paths.add(rel_posix)
+
+                    item_id = rel_path.with_suffix("").as_posix()
                     name = path.stem
-                    folder_hint = path.parent.name if path.parent != wp_dir else "Wallpapers"
+                    folder_hint = rel_path.parent.as_posix() if rel_path.parent != Path(".") else "Wallpapers"
+                    encoded_rel = urllib.parse.quote(rel_posix)
                     results.append({
-                        "id": name,
+                        "id": item_id,
                         "name": name.replace("-", " ").replace("_", " ").title(),
                         "raw_name": path.name,
+                        "rel_path": rel_posix,
                         "category": "wallpaper",
                         "file_path": str(path),
-                        "relative_url": f"/assets/wallpapers/{path.name}",
+                        "relative_url": f"/assets/wallpapers/{encoded_rel}",
                         "description": f"{folder_hint} • {path.suffix[1:].upper()} ({path.name})",
                     })
         return results

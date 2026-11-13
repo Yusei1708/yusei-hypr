@@ -5,13 +5,34 @@ Implements strict impact analysis, pre-apply verification, automated snapshots,
 explicit user confirmation barriers, surgical modification, and 1-click rollback.
 """
 
-import os
-import shutil
 import json
-import time
+import os
+import re
+import shutil
 import subprocess
+import threading
+import time
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Any, Dict, List, Optional
+
+
+CATEGORY_ALIASES = {
+    "waybar_layout": "waybar_layout",
+    "waybar_layouts": "waybar_layout",
+    "waybar_style": "waybar_style",
+    "waybar_styles": "waybar_style",
+    "rofi_theme": "rofi_theme",
+    "rofi_themes": "rofi_theme",
+    "kitty_theme": "kitty_theme",
+    "kitty_themes": "kitty_theme",
+    "hyprland_animation": "hyprland_animation",
+    "hyprland_animations": "hyprland_animation",
+    "wallpaper": "wallpaper",
+    "wallpapers": "wallpaper",
+}
+
+_SAFE_SNAPSHOT_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
 
 class SafetyEngine:
     def __init__(self, target_home: Optional[str] = None):
@@ -21,20 +42,87 @@ class SafetyEngine:
         if target_home:
             self.home = Path(target_home).resolve()
         else:
-            self.home = Path(os.environ.get("HOME", "/home/user")).resolve()
+            self.home = Path(os.environ.get("HOME", str(Path.home()))).resolve()
 
         self.config_dir = self.home / ".config"
         self.backups_dir = self.config_dir / "yusei-settings-backups"
         self._active_wp_proc: Optional[subprocess.Popen] = None
 
+    @staticmethod
+    def normalize_category(category: Optional[str]) -> str:
+        """Maps singular/plural category names to their canonical singular key."""
+        if not isinstance(category, str):
+            raise ValueError(f"Unsupported category: {category!r}")
+        canonical = CATEGORY_ALIASES.get(category.strip().lower())
+        if not canonical:
+            raise ValueError(f"Unsupported category: {category!r}")
+        return canonical
+
+    @staticmethod
+    def validate_snapshot_id(snapshot_id: Any) -> str:
+        """Validates a single-segment snapshot identifier without path traversal."""
+        if (
+            not isinstance(snapshot_id, str)
+            or not snapshot_id
+            or snapshot_id in {".", ".."}
+            or not _SAFE_SNAPSHOT_ID_RE.fullmatch(snapshot_id)
+        ):
+            raise ValueError(f"Invalid snapshot_id: {snapshot_id!r}")
+        return snapshot_id
+
+    @staticmethod
+    def _resolve_rofi_source(source_p: Path, item_id: Optional[str] = None) -> Path:
+        """Resolves legacy config.rasi references to the actual themes/*.rasi file."""
+        if source_p.name != "config.rasi":
+            return source_p
+        themes_dir = source_p.parent / "themes"
+        candidates = []
+        if isinstance(item_id, str) and item_id and "/" not in item_id and "\\" not in item_id:
+            candidates.append(themes_dir / f"{item_id}.rasi")
+        candidates.append(themes_dir / "End-4-Material3.rasi")
+        for cand in candidates:
+            if cand.exists() and cand.is_file():
+                return cand
+        return source_p
+
+    @staticmethod
+    def _ensure_fade_dpms_disabled(content: str) -> str:
+        """Ensures `animation = fadeDpms, 0` is present inside an animation config."""
+        if re.search(r"^\s*animation\s*=\s*fadeDpms\s*,", content, flags=re.MULTILINE):
+            return re.sub(
+                r"^\s*animation\s*=\s*fadeDpms\s*,.*$",
+                "    animation = fadeDpms, 0",
+                content,
+                flags=re.MULTILINE,
+            )
+
+        block_close = re.search(r"\n\}\s*$", content)
+        if re.search(r"animations\s*\{", content) and block_close:
+            prefix = content[:block_close.start()].rstrip("\n")
+            return f"{prefix}\n    animation = fadeDpms, 0\n}}\n"
+
+        stripped = content.rstrip("\n")
+        if stripped:
+            stripped += "\n\n"
+        return f"{stripped}animations {{\n    animation = fadeDpms, 0\n}}\n"
+
+    def _is_within_home(self, path: Path) -> bool:
+        """Checks containment without dereferencing a final symlink target."""
+        abs_p = Path(os.path.abspath(str(path)))
+        return abs_p.is_relative_to(self.home)
+
     def analyze_impact(self, category: str, item_id: str, source_path: str) -> Dict[str, Any]:
         """
         Stage 1 & 2: Analyzes exact files that will be modified without writing anything.
         """
+        canonical_cat = self.normalize_category(category)
+        if not isinstance(source_path, str) or not source_path or "\x00" in source_path:
+            raise ValueError("Invalid source_path")
+
         affected_files = []
         source_p = Path(source_path)
 
-        if category == "waybar_layout":
+        if canonical_cat == "waybar_layout":
             target = self.config_dir / "waybar" / "config"
             affected_files.append({
                 "target": str(target),
@@ -42,7 +130,7 @@ class SafetyEngine:
                 "source": str(source_p),
                 "description": f"Symlink Waybar layout to {source_p.name}",
             })
-        elif category == "waybar_style":
+        elif canonical_cat == "waybar_style":
             target = self.config_dir / "waybar" / "style.css"
             affected_files.append({
                 "target": str(target),
@@ -50,31 +138,47 @@ class SafetyEngine:
                 "source": str(source_p),
                 "description": f"Symlink Waybar style to {source_p.name}",
             })
-        elif category == "rofi_theme":
+        elif canonical_cat == "rofi_theme":
+            resolved_rofi_src = self._resolve_rofi_source(source_p, item_id)
             target = self.config_dir / "rofi" / "config.rasi"
             affected_files.append({
                 "target": str(target),
                 "action": "modify_theme_directive",
-                "source": str(source_p),
-                "description": f"Update @theme directive in Rofi config to {item_id}",
+                "source": str(resolved_rofi_src),
+                "description": f"Update @theme directive in Rofi config to {resolved_rofi_src.name}",
             })
-        elif category == "kitty_theme":
+        elif canonical_cat == "kitty_theme":
             target = self.config_dir / "kitty" / "kitty.conf"
+            current_theme = self.config_dir / "kitty" / "current-theme.conf"
             affected_files.append({
                 "target": str(target),
                 "action": "modify_include_directive",
                 "source": str(source_p),
                 "description": f"Update include directive in Kitty config to ./kitty-themes/{source_p.name}",
             })
-        elif category == "hyprland_animation":
+            affected_files.append({
+                "target": str(current_theme),
+                "action": "copy",
+                "source": str(source_p),
+                "description": f"Sync Kitty current-theme.conf to {source_p.name}",
+            })
+        elif canonical_cat == "hyprland_animation":
             target = self.config_dir / "hypr" / "animations.conf"
             affected_files.append({
                 "target": str(target),
                 "action": "modify_source_directive",
                 "source": str(source_p),
-                "description": f"Update animation source to ./animations/{source_p.name}",
+                "description": f"Update animation source to ./animations/{source_p.name} (preserving fadeDpms = 0)",
             })
-        elif category == "wallpaper":
+            user_anim = self.config_dir / "hypr" / "UserConfigs" / "UserAnimations.conf"
+            if user_anim.parent.exists():
+                affected_files.append({
+                    "target": str(user_anim),
+                    "action": "sync_user_animations",
+                    "source": str(source_p),
+                    "description": f"Sync UserAnimations.conf with {source_p.name} (preserving fadeDpms = 0)",
+                })
+        elif canonical_cat == "wallpaper":
             target = self.config_dir / "hypr" / "wallpaper.jpg"
             target_symlink = self.config_dir / "hypr" / ".current_wallpaper"
             affected_files.append({
@@ -87,14 +191,14 @@ class SafetyEngine:
                 "target": str(target_symlink),
                 "action": "symlink",
                 "source": str(source_p),
-                "description": f"Update .current_wallpaper symlink",
+                "description": "Update .current_wallpaper symlink",
             })
 
         return {
             "status": "READY_FOR_CONFIRMATION",
-            "category": category,
+            "category": canonical_cat,
             "item_id": item_id,
-            "source_path": source_path,
+            "source_path": str(source_p),
             "affected_files": affected_files,
             "unaffected_scope": "All unrelated desktop configurations, keybinds, rules, and daemons will remain untouched.",
             "confirmation_required": True,
@@ -105,8 +209,14 @@ class SafetyEngine:
         """
         Stage 3: Creates a timestamped backup snapshot with manifest.json.
         """
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        snapshot_id = f"snapshot_{timestamp}"
+        self.backups_dir.mkdir(parents=True, exist_ok=True)
+        base_id = f"snapshot_{time.strftime('%Y%m%d_%H%M%S')}"
+        snapshot_id = base_id
+        suffix = 1
+        while (self.backups_dir / snapshot_id).exists():
+            snapshot_id = f"{base_id}_{suffix}"
+            suffix += 1
+
         snapshot_dir = self.backups_dir / snapshot_id
         snapshot_dir.mkdir(parents=True, exist_ok=True)
 
@@ -117,38 +227,97 @@ class SafetyEngine:
             "non_existent_files": [],
         }
 
-        for path_str in files_to_backup:
+        for idx, path_str in enumerate(files_to_backup):
             target_p = Path(path_str)
-            rel_name = target_p.name
-            backup_dest = snapshot_dir / rel_name
-
-            if target_p.exists():
-                if target_p.is_symlink():
-                    link_target = str(os.readlink(target_p))
-                    manifest["backed_up_files"].append({
-                        "original_path": str(target_p),
-                        "is_symlink": True,
-                        "link_target": link_target,
-                    })
-                elif target_p.is_file():
-                    shutil.copy2(target_p, backup_dest)
-                    manifest["backed_up_files"].append({
-                        "original_path": str(target_p),
-                        "is_symlink": False,
-                        "backup_file": rel_name,
-                    })
+            if target_p.is_symlink():
+                link_target = str(os.readlink(target_p))
+                manifest["backed_up_files"].append({
+                    "original_path": str(target_p),
+                    "is_symlink": True,
+                    "link_target": link_target,
+                })
+            elif target_p.exists() and target_p.is_file():
+                backup_name = f"{idx:03d}_{target_p.name}"
+                backup_dest = snapshot_dir / backup_name
+                shutil.copy2(target_p, backup_dest)
+                manifest["backed_up_files"].append({
+                    "original_path": str(target_p),
+                    "is_symlink": False,
+                    "backup_file": backup_name,
+                })
             else:
                 manifest["non_existent_files"].append(str(target_p))
 
-        # Write manifest.json
         manifest_file = snapshot_dir / "manifest.json"
         manifest_file.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
-        # Update latest pointer
         latest_file = self.backups_dir / "latest.json"
         latest_file.write_text(json.dumps({"latest_snapshot": snapshot_id}, indent=2), encoding="utf-8")
 
         return snapshot_id
+
+    def _run_wallpaper_reload(self, resolved_wp: str, wallust_script: str, engine_script: str) -> None:
+        """Applies live wallpaper and dynamic color extraction without shell interpolation."""
+        env = os.environ.copy()
+        local_bin = str(self.home / ".local" / "bin")
+        env["PATH"] = f"{local_bin}:{env.get('PATH', '')}"
+
+        try:
+            chk = subprocess.run(
+                ["pgrep", "-x", "swww-daemon"],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            if chk.returncode != 0:
+                subprocess.Popen(
+                    ["swww-daemon", "--format", "xrgb"],
+                    env=env,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                time.sleep(0.2)
+
+            proc = subprocess.Popen(
+                [
+                    "swww",
+                    "img",
+                    resolved_wp,
+                    "--transition-type",
+                    "any",
+                    "--transition-fps",
+                    "60",
+                    "--transition-duration",
+                    "1.2",
+                    "--transition-bezier",
+                    ".43,1.19,1,.4",
+                ],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            self._active_wp_proc = proc
+            proc.wait(timeout=10)
+        except Exception:
+            pass
+
+        for script_path in (wallust_script, engine_script):
+            sp = Path(script_path)
+            if sp.is_file() and os.access(sp, os.X_OK):
+                try:
+                    proc = subprocess.Popen(
+                        ["bash", str(sp), resolved_wp],
+                        env=env,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                    self._active_wp_proc = proc
+                    proc.wait(timeout=15)
+                except Exception:
+                    pass
+                break
 
     def apply_change(
         self,
@@ -164,13 +333,21 @@ class SafetyEngine:
         if not confirmed:
             raise PermissionError("Explicit user confirmation is mandatory before executing apply.")
 
-        impact = self.analyze_impact(category, item_id, source_path)
+        canonical_cat = self.normalize_category(category)
+        impact = self.analyze_impact(canonical_cat, item_id, source_path)
+
+        # Verify resolved source file exists before creating snapshots or mutating configs
+        for item in impact["affected_files"]:
+            src = Path(item["source"])
+            if not src.exists() or not src.is_file():
+                raise FileNotFoundError(f"Source file not found: {src}")
+
         targets_to_backup = [f["target"] for f in impact["affected_files"]]
-        
-        # 1. Create snapshot (skipped in live GUI mode to avoid disk bloat & I/O lag)
         snapshot_id = None if skip_snapshot else self.create_snapshot(targets_to_backup)
 
-        # 2. Execute surgical modifications
+        real_home = Path(os.environ.get("HOME", str(Path.home()))).resolve()
+        is_live_session = (self.home == real_home)
+
         for item in impact["affected_files"]:
             target_p = Path(item["target"])
             target_p.parent.mkdir(parents=True, exist_ok=True)
@@ -179,7 +356,7 @@ class SafetyEngine:
             if item["action"] == "symlink":
                 if target_p.exists() or target_p.is_symlink():
                     target_p.unlink()
-                if category == "waybar_layout":
+                if canonical_cat == "waybar_layout":
                     local_cfg = target_p.parent / "configs" / source_p.name
                     if not local_cfg.exists() and source_p.exists():
                         local_cfg.parent.mkdir(parents=True, exist_ok=True)
@@ -188,7 +365,7 @@ class SafetyEngine:
                         target_p.symlink_to(local_cfg)
                     else:
                         target_p.symlink_to(source_p.resolve())
-                elif category == "waybar_style":
+                elif canonical_cat == "waybar_style":
                     local_style = target_p.parent / "style" / source_p.name
                     if not local_style.exists() and source_p.exists():
                         local_style.parent.mkdir(parents=True, exist_ok=True)
@@ -205,7 +382,7 @@ class SafetyEngine:
                         target_p.symlink_to(rel)
 
             elif item["action"] == "copy":
-                if skip_snapshot and category == "wallpaper":
+                if skip_snapshot and canonical_cat == "wallpaper":
                     if target_p.exists() or target_p.is_symlink():
                         target_p.unlink()
                     try:
@@ -218,48 +395,60 @@ class SafetyEngine:
                     shutil.copy2(source_p, target_p)
 
             elif item["action"] == "modify_theme_directive":
+                if source_p.name == "config.rasi":
+                    raise ValueError("Cannot point Rofi @theme to config.rasi itself.")
+
                 content = ""
                 if target_p.exists():
                     content = target_p.read_text(encoding="utf-8", errors="ignore")
-                
-                local_theme = target_p.parent / "themes" / source_p.name
-                if not local_theme.exists() and source_p.exists() and source_p.name != "config.rasi":
-                    local_theme.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(source_p, local_theme)
 
-                new_theme_line = f'@theme "~/.config/rofi/themes/{source_p.name}"'
-                if "@theme" in content:
-                    lines = []
-                    for line in content.splitlines():
-                        if line.strip().startswith("@theme"):
-                            lines.append(new_theme_line)
-                        else:
-                            lines.append(line)
-                    content = "\n".join(lines) + "\n"
+                local_theme = target_p.parent / "themes" / source_p.name
+                if not local_theme.exists() or local_theme.resolve() != source_p.resolve():
+                    local_theme.parent.mkdir(parents=True, exist_ok=True)
+                    if source_p.resolve() != local_theme.resolve():
+                        shutil.copy2(source_p, local_theme)
+
+                theme_ref = (
+                    f"~/.config/rofi/themes/{source_p.name}"
+                    if is_live_session
+                    else f"{self.config_dir}/rofi/themes/{source_p.name}"
+                )
+                new_theme_line = f'@theme "{theme_ref}"'
+
+                lines = content.splitlines()
+                replaced = False
+                new_lines = []
+                for line in lines:
+                    if line.strip().startswith("@theme"):
+                        if not replaced:
+                            new_lines.append(new_theme_line)
+                            replaced = True
+                    else:
+                        new_lines.append(line)
+
+                if replaced:
+                    content = "\n".join(new_lines) + "\n"
                 else:
-                    content += f"\n{new_theme_line}\n"
+                    base = content.rstrip("\n")
+                    content = f"{base}\n{new_theme_line}\n" if base else f"{new_theme_line}\n"
                 target_p.write_text(content, encoding="utf-8")
 
             elif item["action"] == "modify_include_directive":
-                import re
                 local_kitty_theme = target_p.parent / "kitty-themes" / source_p.name
                 if not local_kitty_theme.exists() and source_p.exists():
                     local_kitty_theme.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(source_p, local_kitty_theme)
-                if source_p.exists():
-                    try:
-                        shutil.copy2(source_p, target_p.parent / "current-theme.conf")
-                    except Exception:
-                        pass
 
                 content = ""
                 if target_p.exists():
                     content = target_p.read_text(encoding="utf-8", errors="ignore")
                 new_inc_line = f"include ./kitty-themes/{source_p.name}"
-                if "include ./kitty-themes/" in content:
-                    content = re.sub(r'^[#\s]*include\s+\./kitty-themes/.*\.conf', new_inc_line, content, flags=re.MULTILINE)
+                inc_pattern = re.compile(r"^[ \t]*(?:#[ \t]*)?include[ \t]+\./kitty-themes/[^\r\n]*", re.MULTILINE)
+                if inc_pattern.search(content):
+                    content = inc_pattern.sub(new_inc_line, content, count=1)
                 else:
-                    content += f"\n{new_inc_line}\n"
+                    base = content.rstrip("\n")
+                    content = f"{base}\n{new_inc_line}\n" if base else f"{new_inc_line}\n"
                 target_p.write_text(content, encoding="utf-8")
 
             elif item["action"] == "modify_source_directive":
@@ -268,39 +457,58 @@ class SafetyEngine:
                     local_anim.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(source_p, local_anim)
 
-                target_p.write_text(f"source = ./animations/{source_p.name}\n", encoding="utf-8")
-                user_anim = self.home / ".config/hypr/UserConfigs/UserAnimations.conf"
-                if user_anim.parent.exists() and source_p.exists():
-                    try:
-                        shutil.copy2(source_p, user_anim)
-                    except Exception:
-                        pass
+                anim_text = (
+                    f"source = ./animations/{source_p.name}\n\n"
+                    "animations {\n"
+                    "    animation = fadeDpms, 0\n"
+                    "}\n"
+                )
+                target_p.write_text(anim_text, encoding="utf-8")
 
-        # Live reload daemons only when operating on the real user session
-        real_home = Path.home().resolve()
-        is_live_session = (self.home == real_home)
+            elif item["action"] == "sync_user_animations":
+                preset_text = source_p.read_text(encoding="utf-8", errors="ignore")
+                target_p.write_text(self._ensure_fade_dpms_disabled(preset_text), encoding="utf-8")
 
         if is_live_session:
-            if category in ("waybar_layout", "waybar_style"):
+            if canonical_cat in ("waybar_layout", "waybar_style"):
                 try:
-                    subprocess.Popen(
-                        ["bash", "-c", "pkill -SIGUSR2 waybar 2>/dev/null || nohup waybar >/dev/null 2>&1 &"],
+                    sig_proc = subprocess.run(
+                        ["pkill", "-SIGUSR2", "waybar"],
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
+                        check=False,
+                    )
+                    if sig_proc.returncode != 0:
+                        subprocess.Popen(
+                            ["waybar"],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            start_new_session=True,
+                        )
+                except Exception:
+                    pass
+            elif canonical_cat == "kitty_theme":
+                try:
+                    subprocess.run(
+                        ["pkill", "-SIGUSR1", "kitty"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=False,
                     )
                 except Exception:
                     pass
-            elif category == "kitty_theme":
+            elif canonical_cat == "hyprland_animation":
                 try:
-                    subprocess.run(["pkill", "-SIGUSR1", "kitty"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+                    subprocess.run(
+                        ["hyprctl", "reload", "config-only"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=False,
+                        timeout=3,
+                    )
                 except Exception:
                     pass
-            elif category == "hyprland_animation":
-                try:
-                    subprocess.run(["hyprctl", "reload", "config-only"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False, timeout=3)
-                except Exception:
-                    pass
-            elif category == "wallpaper":
+            elif canonical_cat == "wallpaper":
                 resolved_wp = str(Path(source_path).resolve())
                 rofi_link = self.config_dir / "rofi" / ".current_wallpaper"
                 try:
@@ -319,22 +527,12 @@ class SafetyEngine:
 
                 engine_script = str(Path(__file__).resolve().parent.parent.parent / "scripts" / "theme-engine.sh")
                 wallust_script = str(self.home / ".config/hypr/scripts/WallustSwww.sh")
-                try:
-                    self._active_wp_proc = subprocess.Popen(
-                        [
-                            "bash", "-c",
-                            f'export PATH="$HOME/.local/bin:$PATH"; '
-                            f'pgrep -x swww-daemon >/dev/null 2>&1 || (swww-daemon --format xrgb >/dev/null 2>&1 & sleep 0.2); '
-                            f'swww img "{resolved_wp}" --transition-type any --transition-fps 60 --transition-duration 1.2 --transition-bezier ".43,1.19,1,.4" >/dev/null 2>&1 || true; '
-                            f'if [ -x "{wallust_script}" ]; then "{wallust_script}" "{resolved_wp}" >/dev/null 2>&1 || true; '
-                            f'elif [ -x "{engine_script}" ]; then "{engine_script}" "{resolved_wp}" >/dev/null 2>&1 || true; fi'
-                        ],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                    )
-                except Exception:
-                    pass
-        elif category == "wallpaper":
+                threading.Thread(
+                    target=self._run_wallpaper_reload,
+                    args=(resolved_wp, wallust_script, engine_script),
+                    daemon=True,
+                ).start()
+        elif canonical_cat == "wallpaper":
             try:
                 engine_script = Path(__file__).resolve().parent.parent.parent / "scripts" / "theme-engine.sh"
                 if engine_script.exists():
@@ -354,10 +552,10 @@ class SafetyEngine:
         return {
             "success": True,
             "message": f"Successfully applied {item_id} cleanly.",
-            "category": category,
+            "category": canonical_cat,
             "item_id": item_id,
             "snapshot_id": snapshot_id,
-            "can_rollback": True,
+            "can_rollback": not skip_snapshot,
             "applied_files": impact["affected_files"],
         }
 
@@ -372,7 +570,12 @@ class SafetyEngine:
             data = json.loads(latest_file.read_text(encoding="utf-8"))
             snapshot_id = data.get("latest_snapshot")
 
-        snapshot_dir = self.backups_dir / snapshot_id
+        safe_id = self.validate_snapshot_id(snapshot_id)
+        backups_root = self.backups_dir.resolve()
+        snapshot_dir = (backups_root / safe_id).resolve()
+        if not snapshot_dir.is_relative_to(backups_root) or snapshot_dir == backups_root:
+            raise ValueError(f"Snapshot path escapes backup root: {safe_id!r}")
+
         manifest_file = snapshot_dir / "manifest.json"
         if not manifest_file.exists():
             raise FileNotFoundError(f"Snapshot manifest not found in {snapshot_dir}")
@@ -383,6 +586,8 @@ class SafetyEngine:
         # 1. Remove files that were newly created during apply
         for non_ext_path in manifest.get("non_existent_files", []):
             p = Path(non_ext_path)
+            if not self._is_within_home(p):
+                raise ValueError(f"Refusing to remove file outside target home: {p}")
             if p.exists() or p.is_symlink():
                 p.unlink()
                 restored.append({"file": str(p), "action": "removed_newly_created"})
@@ -390,6 +595,9 @@ class SafetyEngine:
         # 2. Restore backed up files
         for item in manifest.get("backed_up_files", []):
             orig_p = Path(item["original_path"])
+            if not self._is_within_home(orig_p):
+                raise ValueError(f"Refusing to restore file outside target home: {orig_p}")
+            orig_p.parent.mkdir(parents=True, exist_ok=True)
             if orig_p.exists() or orig_p.is_symlink():
                 orig_p.unlink()
 
@@ -397,13 +605,18 @@ class SafetyEngine:
                 orig_p.symlink_to(item["link_target"])
                 restored.append({"file": str(orig_p), "action": "restored_symlink"})
             else:
-                backup_file = snapshot_dir / item["backup_file"]
+                backup_rel = item.get("backup_file", "")
+                if not backup_rel or "/" in backup_rel or "\\" in backup_rel or backup_rel in {".", ".."}:
+                    raise ValueError(f"Invalid backup_file in manifest: {backup_rel!r}")
+                backup_file = (snapshot_dir / backup_rel).resolve()
+                if not backup_file.is_relative_to(snapshot_dir):
+                    raise ValueError(f"Backup file escapes snapshot directory: {backup_rel!r}")
                 shutil.copy2(backup_file, orig_p)
                 restored.append({"file": str(orig_p), "action": "restored_file"})
 
         return {
             "success": True,
-            "snapshot_id": snapshot_id,
+            "snapshot_id": safe_id,
             "restored_items": restored,
             "message": f"Rollback successfully restored {len(restored)} configuration targets.",
         }
@@ -414,11 +627,12 @@ class SafetyEngine:
         if not self.backups_dir.exists():
             return snapshots
 
-        for path in sorted(self.backups_dir.iterdir(), reverse=True):
-            if path.is_dir() and (path / "manifest.json").exists():
-                try:
-                    data = json.loads((path / "manifest.json").read_text(encoding="utf-8"))
-                    snapshots.append(data)
-                except Exception:
-                    pass
+        dirs = [p for p in self.backups_dir.iterdir() if p.is_dir() and (p / "manifest.json").exists()]
+        dirs.sort(key=lambda p: (p.stat().st_mtime, p.name), reverse=True)
+        for path in dirs:
+            try:
+                data = json.loads((path / "manifest.json").read_text(encoding="utf-8"))
+                snapshots.append(data)
+            except Exception:
+                pass
         return snapshots

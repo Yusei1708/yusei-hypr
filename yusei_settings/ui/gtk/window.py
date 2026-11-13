@@ -8,12 +8,330 @@ instant live-filtering search, real-time Hyprland controls, and 5-stage safety r
 import os
 import re
 import sys
+import stat
 import hashlib
 import random
+import tempfile
 import threading
 import subprocess
 from pathlib import Path
 from typing import Optional, Any, List, Tuple, Dict
+
+_DECORATION_OPEN_RE = re.compile(r"^([ \t]*)decoration\s*\{(.*)$")
+_ROUNDING_RE = re.compile(r"^([ \t]*rounding\s*=\s*)(-?\d+(?:\.\d+)?)(.*)$")
+_BLUR_OPEN_RE = re.compile(r"^([ \t]*)blur\s*\{(.*)$")
+_BLUR_ENABLED_RE = re.compile(
+    r"^([ \t]*enabled\s*=\s*)(true|false|yes|no|1|0)\b(.*)$",
+    re.IGNORECASE,
+)
+
+
+def _split_line_comment(line: str) -> Tuple[str, str, str]:
+    """Splits a config line into (code_part, comment_part, newline)."""
+    nl = "\n" if line.endswith("\n") else ""
+    raw = line[:-1] if nl else line
+    if "#" in raw:
+        idx = raw.index("#")
+        return raw[:idx], raw[idx:], nl
+    return raw, "", nl
+
+
+def _atomic_write_text(path: Path, content: str) -> None:
+    """Atomically writes UTF-8 text via temp file in same directory + os.replace."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o644
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=str(path.parent),
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(tmp_path, mode)
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+def _parse_decorations_text(text: str) -> Tuple[Optional[int], Optional[bool]]:
+    """Extracts active rounding and blur:enabled from Hyprland decoration config text."""
+    rounding: Optional[int] = None
+    blur_enabled: Optional[bool] = None
+    depth = 0
+    blur_depth: Optional[int] = None
+
+    for line in text.splitlines():
+        code, _comment, _nl = _split_line_comment(line)
+
+        if blur_depth is None:
+            m_round = _ROUNDING_RE.match(code)
+            if m_round:
+                try:
+                    rounding = int(float(m_round.group(2)))
+                except ValueError:
+                    pass
+            m_blur = _BLUR_OPEN_RE.match(code)
+            if m_blur:
+                blur_depth = depth
+                depth += code.count("{") - code.count("}")
+                rest = m_blur.group(2)
+                if depth <= blur_depth:
+                    inside = rest.split("}", 1)[0]
+                    m_en = re.search(
+                        r"\benabled\s*=\s*(true|false|yes|no|1|0)\b",
+                        inside,
+                        re.IGNORECASE,
+                    )
+                    if m_en:
+                        blur_enabled = m_en.group(1).lower() in ("true", "yes", "1")
+                    blur_depth = None
+                continue
+        else:
+            m_en = _BLUR_ENABLED_RE.match(code)
+            if m_en:
+                blur_enabled = m_en.group(2).lower() in ("true", "yes", "1")
+            depth += code.count("{") - code.count("}")
+            if depth <= blur_depth:
+                blur_depth = None
+            continue
+
+        depth += code.count("{") - code.count("}")
+
+    return rounding, blur_enabled
+
+
+def _append_inside_decoration(text: str, inner_lines: List[str]) -> str:
+    """Inserts lines inside the first top-level `decoration { ... }` block or appends a new block."""
+    lines = text.splitlines(keepends=True)
+    depth = 0
+    dec_depth: Optional[int] = None
+    dec_indent = ""
+    child_indent: Optional[str] = None
+
+    for idx, line in enumerate(lines):
+        code, comment, nl = _split_line_comment(line)
+        if dec_depth is None:
+            m_dec = _DECORATION_OPEN_RE.match(code)
+            if m_dec and depth == 0:
+                dec_indent = m_dec.group(1)
+                dec_depth = depth
+                depth += code.count("{") - code.count("}")
+                if depth <= dec_depth:
+                    before_close, close_and_after = m_dec.group(2).split("}", 1)
+                    extra = before_close.strip()
+                    indent = f"{dec_indent}    "
+                    body = "".join(f"{indent}{l}\n" for l in inner_lines)
+                    if extra:
+                        body = f"{indent}{extra}\n{body}"
+                    lines[idx] = f"{dec_indent}decoration {{\n{body}{dec_indent}}}{close_and_after}{comment}{nl}"
+                    return "".join(lines)
+                continue
+            depth += code.count("{") - code.count("}")
+        else:
+            if child_indent is None and code.strip() and not code.lstrip().startswith("}"):
+                child_indent = code[: len(code) - len(code.lstrip())]
+            depth += code.count("{") - code.count("}")
+            if depth <= dec_depth:
+                indent = child_indent or f"{dec_indent}    "
+                inserted = [f"{indent}{l}\n" for l in inner_lines]
+                lines[idx:idx] = inserted
+                return "".join(lines)
+
+    if not text:
+        sep = ""
+    elif text.endswith("\n\n"):
+        sep = ""
+    elif text.endswith("\n"):
+        sep = "\n"
+    else:
+        sep = "\n\n"
+    body = "".join(f"    {l}\n" for l in inner_lines)
+    return f"{text}{sep}decoration {{\n{body}}}\n"
+
+
+def _set_decorations_rounding(text: str, rounding: int) -> str:
+    """Updates an active rounding line in place or adds `rounding = N` inside `decoration { ... }`."""
+    lines = text.splitlines(keepends=True)
+    for idx, line in enumerate(lines):
+        code, comment, nl = _split_line_comment(line)
+        m_round = _ROUNDING_RE.match(code)
+        if m_round:
+            lines[idx] = f"{m_round.group(1)}{int(rounding)}{m_round.group(3)}{comment}{nl}"
+            return "".join(lines)
+
+    return _append_inside_decoration(text, [f"rounding = {int(rounding)}"])
+
+
+def _set_decorations_blur(text: str, enabled: bool) -> str:
+    """Updates `blur { enabled = ... }` in place or adds it inside `decoration { ... }`."""
+    val_str = "true" if enabled else "false"
+    lines = text.splitlines(keepends=True)
+    depth = 0
+    blur_depth: Optional[int] = None
+    blur_start_idx: Optional[int] = None
+    blur_indent = ""
+    child_indent: Optional[str] = None
+
+    for idx, line in enumerate(lines):
+        code, comment, nl = _split_line_comment(line)
+
+        if blur_depth is None:
+            m_blur = _BLUR_OPEN_RE.match(code)
+            if m_blur:
+                blur_indent = m_blur.group(1)
+                blur_depth = depth
+                blur_start_idx = idx
+                depth += code.count("{") - code.count("}")
+                if depth <= blur_depth:
+                    rest = m_blur.group(2)
+                    before_close, close_and_after = rest.split("}", 1)
+                    if re.search(
+                        r"\benabled\s*=\s*(?:true|false|yes|no|1|0)\b",
+                        before_close,
+                        re.IGNORECASE,
+                    ):
+                        updated_inside = re.sub(
+                            r"(\benabled\s*=\s*)(?:true|false|yes|no|1|0)\b",
+                            rf"\g<1>{val_str}",
+                            before_close,
+                            count=1,
+                            flags=re.IGNORECASE,
+                        )
+                        lines[idx] = f"{blur_indent}blur {{{updated_inside}}}{close_and_after}{comment}{nl}"
+                    else:
+                        extra = before_close.strip()
+                        inner_lines = f"{blur_indent}    enabled = {val_str}\n"
+                        if extra:
+                            inner_lines += f"{blur_indent}    {extra}\n"
+                        lines[idx] = (
+                            f"{blur_indent}blur {{\n"
+                            f"{inner_lines}"
+                            f"{blur_indent}}}{close_and_after}{comment}{nl}"
+                        )
+                    return "".join(lines)
+                continue
+            depth += code.count("{") - code.count("}")
+        else:
+            m_en = _BLUR_ENABLED_RE.match(code)
+            if m_en:
+                lines[idx] = f"{m_en.group(1)}{val_str}{m_en.group(3)}{comment}{nl}"
+                return "".join(lines)
+            if child_indent is None and code.strip() and not code.lstrip().startswith("}"):
+                child_indent = code[: len(code) - len(code.lstrip())]
+            depth += code.count("{") - code.count("}")
+            if depth <= blur_depth and blur_start_idx is not None:
+                indent = child_indent or f"{blur_indent}    "
+                lines.insert(blur_start_idx + 1, f"{indent}enabled = {val_str}\n")
+                return "".join(lines)
+
+    return _append_inside_decoration(text, ["blur {", f"    enabled = {val_str}", "}"])
+
+
+def _update_user_decorations_file(
+    home: Path,
+    *,
+    rounding: Optional[int] = None,
+    blur_enabled: Optional[bool] = None,
+) -> Path:
+    """Persists rounding and/or blur state atomically to UserDecorations.conf under `home`."""
+    user_dec = home / ".config" / "hypr" / "UserConfigs" / "UserDecorations.conf"
+    txt = user_dec.read_text(encoding="utf-8", errors="ignore") if user_dec.exists() else ""
+    if rounding is not None:
+        txt = _set_decorations_rounding(txt, rounding)
+    if blur_enabled is not None:
+        txt = _set_decorations_blur(txt, blur_enabled)
+    _atomic_write_text(user_dec, txt)
+    return user_dec
+
+
+def _read_user_decorations_state(home: Path) -> Tuple[int, bool]:
+    """Reads fallback rounding and blur state from configs under `home`."""
+    rounding = 16
+    blur_enabled = True
+    hypr_dir = home / ".config" / "hypr"
+    for cfg in (
+        hypr_dir / "decorations.conf",
+        hypr_dir / "UserConfigs" / "UserDecorations.conf",
+    ):
+        if not cfg.exists():
+            continue
+        try:
+            r, b = _parse_decorations_text(cfg.read_text(encoding="utf-8", errors="ignore"))
+            if r is not None:
+                rounding = r
+            if b is not None:
+                blur_enabled = b
+        except Exception:
+            pass
+    return rounding, blur_enabled
+
+
+def _read_default_apps(home: Path) -> Tuple[str, str]:
+    """Reads `$term` and `$files` (or Lua equivalents) from Hyprland configs under `home`."""
+    term: Optional[str] = None
+    files: Optional[str] = None
+    hypr_dir = home / ".config" / "hypr"
+    conf_candidates = [
+        hypr_dir / "userprefs.conf",
+        hypr_dir / "UserConfigs" / "01-UserDefaults.conf",
+        hypr_dir / "UserConfigs" / "UserKeybinds.conf",
+        hypr_dir / "keybinds.conf",
+    ]
+    for cfg in conf_candidates:
+        if not cfg.exists():
+            continue
+        try:
+            for line in cfg.read_text(encoding="utf-8", errors="ignore").splitlines():
+                clean = line.split("#", 1)[0].strip()
+                if not clean:
+                    continue
+                if term is None:
+                    m = re.match(r"^\$term\s*=\s*(.+)$", clean)
+                    if m:
+                        val = m.group(1).strip().strip("\"'")
+                        if val:
+                            term = val
+                if files is None:
+                    m = re.match(r"^\$files\s*=\s*(.+)$", clean)
+                    if m:
+                        val = m.group(1).strip().strip("\"'")
+                        if val:
+                            files = val
+        except Exception:
+            pass
+        if term is not None and files is not None:
+            break
+
+    if term is None or files is None:
+        for lua_cfg in (hypr_dir / "userprefs.lua", hypr_dir / "hyprland.lua"):
+            if not lua_cfg.exists():
+                continue
+            try:
+                for line in lua_cfg.read_text(encoding="utf-8", errors="ignore").splitlines():
+                    clean = line.split("--", 1)[0].strip()
+                    if not clean:
+                        continue
+                    if term is None:
+                        m = re.match(r"^(?:local\s+)?terminal\s*=\s*[\"']([^\"']+)[\"']", clean)
+                        if m:
+                            term = m.group(1).strip()
+                    if files is None:
+                        m = re.match(r"^(?:local\s+)?fileManager\s*=\s*[\"']([^\"']+)[\"']", clean)
+                        if m:
+                            files = m.group(1).strip()
+            except Exception:
+                pass
+            if term is not None and files is not None:
+                break
+
+    return term or "kitty", files or "thunar"
 
 def is_gtk_available() -> bool:
     try:
@@ -50,13 +368,13 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
     class YuseiSettingsApp(Adw.Application):
         def __init__(self):
             super().__init__(application_id="io.github.yusei.Settings", flags=Gio.ApplicationFlags.FLAGS_NONE)
-            self.discovery = DiscoveryEngine(workspace_root)
+            self.discovery = DiscoveryEngine(workspace_root, target_home=target_home)
             self.state_mgr = StateManager(target_home)
             self.safety = SafetyEngine(target_home)
             self.power_mgr = PowerManager(workspace_root, target_home)
             self.searchable_rows: List[Tuple[Adw.ExpanderRow, Adw.ActionRow, str]] = []
             self.searchable_wp_cards: List[Tuple[Any, str]] = []
-            self.wp_card_map: Dict[str, Tuple[Any, Any]] = {}
+            self.wp_card_map: Dict[str, Tuple[Any, Any, str]] = {}
             self.category_cards: Dict[str, Dict[str, Tuple[Any, Dict[str, Any]]]] = {}
             self.category_expanders: Dict[str, Tuple[Any, str]] = {}
             self.lazy_section_builders: List[Any] = []
@@ -65,16 +383,96 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
             self.wp_random_pic: Optional[Any] = None
             self.wallpapers_catalog: List[Dict[str, Any]] = []
             self._syncing_hypr_state: bool = False
-            self._thumb_cache_dir = Path.home() / ".cache" / "yusei-hypr" / "wall_thumbs"
+            self._filter_timeout_id: Optional[int] = None
+            self._pre_search_expanded: Optional[Dict[Any, bool]] = None
+            self._thumb_cache_dir = self.safety.home / ".cache" / "yusei-settings" / "thumbs"
             try:
                 self._thumb_cache_dir.mkdir(parents=True, exist_ok=True)
             except Exception:
                 pass
 
+        def _is_live_session(self) -> bool:
+            try:
+                return self.safety.home == Path.home().resolve()
+            except Exception:
+                return False
+
+        def _show_toast(
+            self,
+            win,
+            message: str,
+            timeout: int = 3,
+            button_label: Optional[str] = None,
+            on_button_clicked=None,
+        ):
+            if win is None:
+                return
+            toast = Adw.Toast()
+            if hasattr(toast, "set_use_markup"):
+                toast.set_use_markup(False)
+                toast.set_title(str(message))
+            else:
+                toast.set_title(esc(message))
+            toast.set_timeout(timeout)
+            if button_label and on_button_clicked is not None:
+                toast.set_button_label(button_label)
+                toast.connect("button-clicked", on_button_clicked)
+            win.add_toast(toast)
+
+        def _present_dialog(
+            self,
+            win,
+            heading: str,
+            body: str,
+            responses: List[Tuple[str, str]],
+            default_response: str,
+            close_response: str,
+            suggested_response: Optional[str] = None,
+            on_response=None,
+        ):
+            if hasattr(Adw, "AlertDialog"):
+                dlg = Adw.AlertDialog(heading=str(heading), body=str(body))
+                present_fn = lambda: dlg.present(win)
+            else:
+                dlg = Adw.MessageDialog(
+                    transient_for=win,
+                    modal=True,
+                    heading=str(heading),
+                    body=str(body),
+                )
+                present_fn = dlg.present
+
+            for rid, label in responses:
+                dlg.add_response(rid, label)
+            if suggested_response is not None:
+                dlg.set_response_appearance(suggested_response, Adw.ResponseAppearance.SUGGESTED)
+            dlg.set_default_response(default_response)
+            dlg.set_close_response(close_response)
+            if on_response is not None:
+                dlg.connect("response", on_response)
+            present_fn()
+
+        def _show_error(self, win, heading: str, message: str):
+            self._show_toast(win, f"{heading}: {message}", timeout=4)
+            if win is None:
+                return
+            try:
+                self._present_dialog(
+                    win,
+                    heading=heading,
+                    body=message,
+                    responses=[("ok", "Đóng")],
+                    default_response="ok",
+                    close_response="ok",
+                )
+            except Exception:
+                pass
+
         def _get_hypr_decoration_state(self) -> Tuple[int, bool]:
-            """Reads current rounding and blur state from hyprctl or config."""
-            rounding = 16
-            blur_enabled = True
+            """Reads current rounding and blur state from hyprctl (live session) or config."""
+            rounding, blur_enabled = _read_user_decorations_state(self.safety.home)
+            if not self._is_live_session():
+                return rounding, blur_enabled
             try:
                 out = subprocess.check_output(["hyprctl", "getoption", "decoration:rounding"], text=True, timeout=2)
                 m = re.search(r"int:\s*(\d+)", out)
@@ -95,54 +493,44 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
             if self._syncing_hypr_state:
                 return
             val = int(spin_btn.get_value())
-            try:
-                subprocess.Popen(
-                    ["hyprctl", "keyword", "decoration:rounding", str(val)],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-            except Exception:
-                pass
-            # Persist in UserDecorations.conf if present
-            user_dec = self.safety.home / ".config/hypr/UserConfigs/UserDecorations.conf"
-            if user_dec.exists():
+            if self._is_live_session():
                 try:
-                    txt = user_dec.read_text(encoding="utf-8", errors="ignore")
-                    txt = re.sub(r"(^\s*rounding\s*=\s*)\d+", rf"\g<1>{val}", txt, flags=re.MULTILINE)
-                    user_dec.write_text(txt, encoding="utf-8")
+                    subprocess.Popen(
+                        ["hyprctl", "keyword", "decoration:rounding", str(val)],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
                 except Exception:
                     pass
+            try:
+                _update_user_decorations_file(self.safety.home, rounding=val)
+            except Exception as exc:
+                self._show_error(win, "Lỗi lưu bo góc", str(exc))
 
         def _apply_hypr_blur(self, switch_row, _pspec, win):
             if self._syncing_hypr_state:
                 return
-            active = switch_row.get_active()
+            active = bool(switch_row.get_active())
             val_str = "true" if active else "false"
-            try:
-                subprocess.Popen(
-                    ["hyprctl", "keyword", "decoration:blur:enabled", val_str],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-            except Exception:
-                pass
-            user_dec = self.safety.home / ".config/hypr/UserConfigs/UserDecorations.conf"
-            if user_dec.exists():
+            if self._is_live_session():
                 try:
-                    txt = user_dec.read_text(encoding="utf-8", errors="ignore")
-                    txt = re.sub(
-                        r"(blur\s*\{[^}]*?enabled\s*=\s*)(true|false|yes|no|1|0)",
-                        rf"\g<1>{val_str}",
-                        txt,
-                         count=1,
-                        flags=re.DOTALL,
+                    subprocess.Popen(
+                        ["hyprctl", "keyword", "decoration:blur:enabled", val_str],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
                     )
-                    user_dec.write_text(txt, encoding="utf-8")
                 except Exception:
                     pass
-            toast = Adw.Toast(title=f"Đã {'bật' if active else 'tắt'} hiệu ứng làm mờ nền (Blur)")
-            toast.set_timeout(2)
-            win.add_toast(toast)
+            try:
+                _update_user_decorations_file(self.safety.home, blur_enabled=active)
+            except Exception as exc:
+                self._show_error(win, "Lỗi lưu hiệu ứng làm mờ", str(exc))
+                return
+            self._show_toast(
+                win,
+                f"Đã {'bật' if active else 'tắt'} hiệu ứng làm mờ nền (Blur)",
+                timeout=2,
+            )
 
         def _install_custom_css(self):
             css_provider = Gtk.CssProvider()
@@ -304,12 +692,17 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
 
             catalog = self.discovery.discover_all(fast_scan=True)
             active = self.state_mgr.get_active_state()
+            if self._filter_timeout_id is not None:
+                GLib.source_remove(self._filter_timeout_id)
+                self._filter_timeout_id = None
+            self._pre_search_expanded = None
             self.searchable_rows.clear()
             self.searchable_wp_cards.clear()
             self.wp_card_map.clear()
             self.category_cards.clear()
             self.category_expanders.clear()
             self.lazy_section_builders.clear()
+            win.connect("close-request", self._on_window_close_request)
 
             # -----------------------------------------------------------------
             # PAGE 1: Giao diện & Layout (Appearance)
@@ -611,7 +1004,7 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
                 subtitle=esc("Khôi phục tần số quét cao khi cắm sạc"),
                 active=True
             )
-            row_auto_60hz.connect("notify::active", lambda w, p: self.power_mgr.set_config(w.get_active()))
+            row_auto_60hz.connect("notify::active", self._on_auto_60hz_toggled, win)
             group_power_cfg.add(row_auto_60hz)
 
             row_toggle_hz = Adw.ActionRow(
@@ -635,9 +1028,10 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
                 title="Ứng dụng",
                 icon_name="system-run-symbolic"
             )
+            term_cmd, files_cmd = _read_default_apps(self.safety.home)
             group_apps = Adw.PreferencesGroup(title="Ứng Dụng Mặc Định")
-            group_apps.add(Adw.ActionRow(title=esc("Terminal mặc định ($term)"), subtitle=esc("kitty")))
-            group_apps.add(Adw.ActionRow(title=esc("Trình quản lý tệp ($files)"), subtitle=esc("thunar")))
+            group_apps.add(Adw.ActionRow(title=esc("Terminal mặc định ($term)"), subtitle=esc(term_cmd)))
+            group_apps.add(Adw.ActionRow(title=esc("Trình quản lý tệp ($files)"), subtitle=esc(files_cmd)))
             page_apps.add(group_apps)
 
             group_tools = Adw.PreferencesGroup(
@@ -656,16 +1050,16 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
             )
             tools_flow.add_css_class("catalog-grid-box")
             quick_tools = [
-                ("Làm mới Thanh Waybar & SwayNC", "Khởi động lại Waybar và nạp lại CSS SwayNC tức thì", "~/.config/hypr/scripts/Refresh.sh"),
-                ("Mở Bộ Chọn Hình Nền (Rofi)", "Duyệt hình nền có ảnh thu nhỏ và áp dụng Wallust", "~/.config/hypr/scripts/WallpaperSelect.sh"),
-                ("Bảng Phím Tắt Hệ Thống (KeyHints)", "Xem danh sách toàn bộ phím tắt trên yusei-hypr", "~/.config/hypr/scripts/KeyHints.sh"),
+                ("Làm mới Thanh Waybar & SwayNC", "Khởi động lại Waybar và nạp lại CSS SwayNC tức thì", ".config/hypr/scripts/Refresh.sh"),
+                ("Mở Bộ Chọn Hình Nền (Rofi)", "Duyệt hình nền có ảnh thu nhỏ và áp dụng Wallust", ".config/hypr/scripts/WallpaperSelect.sh"),
+                ("Bảng Phím Tắt Hệ Thống (KeyHints)", "Xem danh sách toàn bộ phím tắt trên yusei-hypr", ".config/hypr/scripts/KeyHints.sh"),
             ]
-            for t_title, t_sub, t_cmd in quick_tools:
+            for t_title, t_sub, t_rel in quick_tools:
                 child_t, _card_t = self._create_3col_card_child(
                     title_txt=t_title,
                     sub_txt=t_sub,
                     btn_label="Chạy",
-                    on_click_cb=lambda _b, c=t_cmd: subprocess.Popen(["bash", "-c", os.path.expanduser(c)]),
+                    on_click_cb=lambda _b, rel=t_rel: self._run_quick_tool(rel, win),
                 )
                 tools_flow.append(child_t)
             tools_row.set_child(tools_flow)
@@ -685,8 +1079,8 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
                     self._syncing_hypr_state = True
                     try:
                         spin_round.set_value(cur_rounding)
-                        row_blur.set_active(cur_blur)
-                        row_auto_60hz.set_active(power_st.get("auto_60hz", True))
+                        row_blur.set_active(bool(cur_blur))
+                        row_auto_60hz.set_active(bool(power_st.get("auto_60hz", True)))
                     finally:
                         self._syncing_hypr_state = False
                     self._apply_power_status_to_ui(power_st)
@@ -836,7 +1230,8 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
 
                 search_blob = f"{item.get('name', '')} {raw_name} {item.get('description', '')}".lower()
                 self.searchable_wp_cards.append((child, search_blob))
-                self.wp_card_map[raw_name] = (card_btn, lbl)
+                wp_key = item.get("file_path") or raw_name
+                self.wp_card_map[wp_key] = (card_btn, lbl, raw_name)
 
             scrolled.set_child(flowbox)
             grid_row.set_child(scrolled)
@@ -899,13 +1294,30 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
             if batch:
                 GLib.idle_add(self._apply_pixbuf_batch, batch)
 
-        def _update_active_wallpaper_ui(self, active_raw_name: str):
+        def _on_window_close_request(self, _win) -> bool:
+            if self._filter_timeout_id is not None:
+                GLib.source_remove(self._filter_timeout_id)
+                self._filter_timeout_id = None
+            return False
+
+        def _run_quick_tool(self, rel_path: str, win):
+            script_path = self.safety.home / rel_path
+            if not script_path.exists():
+                self._show_error(win, "Không tìm thấy công cụ", f"Tệp không tồn tại: {script_path}")
+                return
+            try:
+                subprocess.Popen(["bash", str(script_path)])
+            except Exception as exc:
+                self._show_error(win, "Không thể khởi chạy công cụ", str(exc))
+
+        def _update_active_wallpaper_ui(self, active_raw_name: str, active_file_path: Optional[str] = None):
             if self.wp_expander is not None:
                 self.wp_expander.set_subtitle(
                     esc(f"Đang dùng: {active_raw_name} • Nhấn trực tiếp vào ảnh để đặt hình nền (như Super + W)")
                 )
-            for raw_name, (btn, lbl) in self.wp_card_map.items():
-                if raw_name == active_raw_name:
+            for wp_key, (btn, lbl, raw_name) in self.wp_card_map.items():
+                is_match = (wp_key == active_file_path) if active_file_path else (raw_name == active_raw_name)
+                if is_match:
                     btn.add_css_class("wallpaper-card-active")
                     lbl.add_css_class("wallpaper-label-active")
                 else:
@@ -938,36 +1350,57 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
             self.on_wallpaper_card_clicked(None, chosen, parent_window)
 
         def on_wallpaper_card_clicked(self, _button, item: Dict[str, Any], parent_window):
-            self.safety.apply_change(
-                "wallpaper",
-                item["id"],
-                item["file_path"],
-                confirmed=True,
-                skip_snapshot=True,
-            )
+            # Live preview / rapid wallpaper switcher intentionally skips snapshot creation.
+            try:
+                res = self.safety.apply_change(
+                    "wallpaper",
+                    item["id"],
+                    item["file_path"],
+                    confirmed=True,
+                    skip_snapshot=True,
+                )
+            except Exception as exc:
+                self._show_error(parent_window, "Không thể đổi hình nền", str(exc))
+                return
+            if isinstance(res, dict) and not res.get("success", True):
+                self._show_error(parent_window, "Không thể đổi hình nền", res.get("message", "Lỗi không xác định"))
+                return
             raw_name = item.get("raw_name", item["name"])
-            self._update_active_wallpaper_ui(raw_name)
-            toast = Adw.Toast(title=f"Đã đặt hình nền: {raw_name}")
-            toast.set_timeout(2)
-            parent_window.add_toast(toast)
+            self._update_active_wallpaper_ui(raw_name, item.get("file_path"))
+            self._show_toast(parent_window, f"Đã đặt hình nền: {raw_name}", timeout=2)
 
-        def on_filter_changed(self, search_entry):
-            query = search_entry.get_text().strip().lower()
+        def _all_filter_expanders(self) -> List[Any]:
+            expanders = [exp for exp, _suffix in self.category_expanders.values()]
+            if self.wp_expander is not None:
+                expanders.append(self.wp_expander)
+            return expanders
+
+        def _apply_search_filter(self, query: str) -> bool:
+            self._filter_timeout_id = None
+
             if query:
-                for builder_fn in self.lazy_section_builders:
-                    builder_fn()
-            expander_matches = {}
+                if self._pre_search_expanded is None:
+                    self._pre_search_expanded = {
+                        exp: bool(exp.get_expanded()) for exp in self._all_filter_expanders()
+                    }
+                if self.lazy_section_builders:
+                    builders = list(self.lazy_section_builders)
+                    self.lazy_section_builders.clear()
+                    for builder_fn in builders:
+                        builder_fn()
+
+            expander_matches: Dict[Any, int] = {}
             for expander, row, blob in self.searchable_rows:
                 matched = (not query) or (query in blob)
                 row.set_visible(matched)
                 if matched:
                     expander_matches[expander] = expander_matches.get(expander, 0) + 1
 
-            for expander, _row, _blob in self.searchable_rows:
-                has_match = expander_matches.get(expander, 0) > 0
-                expander.set_visible(has_match)
+            for exp, _suffix in self.category_expanders.values():
+                has_match = (not query) or (expander_matches.get(exp, 0) > 0)
+                exp.set_visible(has_match)
                 if query and has_match:
-                    expander.set_expanded(True)
+                    exp.set_expanded(True)
 
             # Filter visual wallpaper cards
             wp_matches = 0
@@ -978,10 +1411,24 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
                     wp_matches += 1
 
             if self.wp_expander is not None:
-                has_wp = wp_matches > 0
+                has_wp = (not query) or (wp_matches > 0)
                 self.wp_expander.set_visible(has_wp)
                 if query and has_wp:
                     self.wp_expander.set_expanded(True)
+
+            if not query and self._pre_search_expanded is not None:
+                for exp, was_expanded in self._pre_search_expanded.items():
+                    exp.set_expanded(was_expanded)
+                self._pre_search_expanded = None
+
+            return GLib.SOURCE_REMOVE
+
+        def on_filter_changed(self, search_entry):
+            if self._filter_timeout_id is not None:
+                GLib.source_remove(self._filter_timeout_id)
+                self._filter_timeout_id = None
+            query = search_entry.get_text().strip().lower()
+            self._filter_timeout_id = GLib.timeout_add(200, self._apply_search_filter, query)
 
         def _apply_power_status_to_ui(self, st: Dict[str, Any]):
             prof = str(st.get("profile", "balanced")).lower()
@@ -999,44 +1446,210 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
                 GLib.idle_add(lambda: (self._apply_power_status_to_ui(st), GLib.SOURCE_REMOVE)[1])
             threading.Thread(target=_worker, daemon=True).start()
 
-        def on_power_profile_clicked(self, _button, profile_id: str, profile_name: str, win):
-            self._update_active_category_ui("power_profile", profile_id, profile_name)
-            toast = Adw.Toast(title=f"Đã chuyển sang chế độ: {profile_name}")
-            toast.set_timeout(2)
-            win.add_toast(toast)
+        def _on_auto_60hz_toggled(self, switch_row, _pspec, win):
+            if self._syncing_hypr_state:
+                return
+            active = bool(switch_row.get_active())
 
             def _worker():
-                self.power_mgr.set_profile(profile_id)
-                st = self.power_mgr.get_status()
-                GLib.idle_add(lambda: (self._apply_power_status_to_ui(st), GLib.SOURCE_REMOVE)[1])
+                err_msg: Optional[str] = None
+                res: Optional[Dict[str, Any]] = None
+                try:
+                    res = self.power_mgr.set_config(auto_60hz=active)
+                    if not isinstance(res, dict) or not res.get("success", False):
+                        err_msg = (res or {}).get("message") or "Không thể cập nhật cấu hình tự động 60Hz."
+                except Exception as exc:
+                    err_msg = str(exc)
+
+                def _finish():
+                    if err_msg is not None:
+                        self._syncing_hypr_state = True
+                        try:
+                            switch_row.set_active(not active)
+                        finally:
+                            self._syncing_hypr_state = False
+                        self._show_error(win, "Lỗi cấu hình 60Hz tự động", err_msg)
+                    else:
+                        msg = (res or {}).get("message") or (
+                            "Đã bật tự động hạ 60Hz khi rút sạc" if active else "Đã tắt tự động hạ 60Hz khi rút sạc"
+                        )
+                        self._show_toast(win, msg, timeout=2)
+                    return GLib.SOURCE_REMOVE
+
+                GLib.idle_add(_finish)
 
             threading.Thread(target=_worker, daemon=True).start()
+
+        def _run_power_action_async(
+            self,
+            win,
+            action_fn,
+            error_heading: str,
+            default_err: str,
+            on_success,
+        ):
+            def _worker():
+                err_msg: Optional[str] = None
+                res: Optional[Dict[str, Any]] = None
+                st: Optional[Dict[str, Any]] = None
+                try:
+                    res = action_fn()
+                    if not isinstance(res, dict) or not res.get("success", False):
+                        err_msg = (res or {}).get("message") or default_err
+                    st = self.power_mgr.get_status()
+                except Exception as exc:
+                    err_msg = str(exc)
+
+                def _finish():
+                    if st is not None:
+                        self._apply_power_status_to_ui(st)
+                    if err_msg is not None:
+                        self._show_error(win, error_heading, err_msg)
+                    else:
+                        on_success(res or {})
+                    return GLib.SOURCE_REMOVE
+
+                GLib.idle_add(_finish)
+
+            threading.Thread(target=_worker, daemon=True).start()
+
+        def on_power_profile_clicked(self, _button, profile_id: str, profile_name: str, win):
+            def _on_ok(_res):
+                self._update_active_category_ui("power_profile", profile_id, profile_name)
+                self._show_toast(win, f"Đã chuyển sang chế độ: {profile_name}", timeout=2)
+
+            self._run_power_action_async(
+                win,
+                lambda: self.power_mgr.set_profile(profile_id),
+                error_heading="Lỗi chuyển chế độ nguồn",
+                default_err=f"Không thể chuyển profile {profile_name}.",
+                on_success=_on_ok,
+            )
 
         def on_toggle_hz_clicked(self, _button, win):
-            toast = Adw.Toast(title="Đã chuyển đổi tần số quét màn hình!")
-            toast.set_timeout(2)
-            win.add_toast(toast)
+            self._run_power_action_async(
+                win,
+                self.power_mgr.toggle_hz,
+                error_heading="Lỗi chuyển đổi Hz",
+                default_err="Không thể chuyển đổi tần số quét.",
+                on_success=lambda res: self._show_toast(
+                    win,
+                    res.get("message") or "Đã chuyển đổi tần số quét màn hình!",
+                    timeout=2,
+                ),
+            )
 
-            def _worker():
-                self.power_mgr.toggle_hz()
-                st = self.power_mgr.get_status()
-                GLib.idle_add(lambda: (self._apply_power_status_to_ui(st), GLib.SOURCE_REMOVE)[1])
+        def _rollback_snapshot(self, snapshot_id: str, category: str, parent_window):
+            try:
+                rb_res = self.safety.rollback(snapshot_id)
+            except Exception as exc:
+                self._show_error(parent_window, "Hoàn tác thất bại", str(exc))
+                return
+            if not isinstance(rb_res, dict) or not rb_res.get("success", False):
+                err_msg = (rb_res or {}).get("message") or "Không thể hoàn tác bản sao lưu."
+                self._show_error(parent_window, "Hoàn tác thất bại", err_msg)
+                return
 
-            threading.Thread(target=_worker, daemon=True).start()
+            try:
+                active = self.state_mgr.get_active_state()
+                active_val = str(active.get(category, "")).strip()
+                cards_map = self.category_cards.get(category, {})
+                matched_id = ""
+                display_name = active_val or "Default"
+                active_low = active_val.lower()
+                for cid, (_card, it) in cards_map.items():
+                    raw_n = str(it.get("raw_name", "")).strip().lower()
+                    name_n = str(it.get("name", "")).strip().lower()
+                    id_n = str(it.get("id", "")).strip().lower()
+                    if active_low and active_low in (raw_n, name_n, id_n):
+                        matched_id = cid
+                        display_name = it.get("raw_name", it.get("name", display_name))
+                        break
+                self._update_active_category_ui(category, matched_id, display_name)
+            except Exception:
+                pass
+            self._show_toast(parent_window, f"Đã hoàn tác bản sao lưu: {snapshot_id}", timeout=3)
 
         def on_apply_clicked(self, button, category, item, parent_window):
-            self.safety.apply_change(
-                category,
-                item["id"],
-                item["file_path"],
-                confirmed=True,
-                skip_snapshot=True,
-            )
+            file_path = item.get("file_path")
+            item_id = item.get("id")
+            if not file_path or not item_id:
+                self._show_error(parent_window, "Không thể áp dụng", "Thiếu thông tin tệp nguồn của mục đã chọn.")
+                return
+
+            try:
+                impact = self.safety.analyze_impact(category, item_id, file_path)
+            except Exception as exc:
+                self._show_error(parent_window, "Không thể phân tích tác động", str(exc))
+                return
+
+            affected = impact.get("affected_files", [])
+            if affected:
+                files_summary = "\n".join(
+                    f"• {entry.get('target', '')} ({entry.get('action', '')})"
+                    for entry in affected
+                )
+            else:
+                files_summary = "• (Không có tệp nào bị thay đổi)"
+
             display_name = item.get("raw_name", item.get("name", ""))
-            self._update_active_category_ui(category, item["id"], display_name)
-            toast = Adw.Toast(title=f"Đã áp dụng: {item['name']}")
-            toast.set_timeout(2)
-            parent_window.add_toast(toast)
+            heading = f"Xác nhận áp dụng: {item.get('name', display_name)}"
+            body = (
+                f"Các tệp cấu hình sẽ được cập nhật:\n{files_summary}\n\n"
+                "Hệ thống sẽ tự động tạo bản sao lưu (snapshot) trước khi thay đổi."
+            )
+
+            def _execute_apply():
+                try:
+                    res = self.safety.apply_change(
+                        category,
+                        item_id,
+                        file_path,
+                        confirmed=True,
+                        skip_snapshot=False,
+                    )
+                except Exception as exc:
+                    self._show_error(parent_window, "Áp dụng cấu hình thất bại", str(exc))
+                    return
+
+                if not isinstance(res, dict) or not res.get("success", False):
+                    err_msg = (res or {}).get("message") or "Thao tác áp dụng cấu hình không thành công."
+                    self._show_error(parent_window, "Áp dụng cấu hình thất bại", err_msg)
+                    return
+
+                self._update_active_category_ui(category, item_id, display_name)
+                snapshot_id = res.get("snapshot_id")
+                title_msg = (
+                    f"Đã áp dụng: {item.get('name', display_name)} (Snapshot: {snapshot_id})"
+                    if snapshot_id
+                    else f"Đã áp dụng: {item.get('name', display_name)}"
+                )
+                self._show_toast(
+                    parent_window,
+                    title_msg,
+                    timeout=5,
+                    button_label="Hoàn tác" if snapshot_id else None,
+                    on_button_clicked=(
+                        (lambda _t, sid=snapshot_id, cat=category: self._rollback_snapshot(sid, cat, parent_window))
+                        if snapshot_id
+                        else None
+                    ),
+                )
+
+            def _on_response(_dialog, response_id):
+                if response_id == "apply":
+                    _execute_apply()
+
+            self._present_dialog(
+                parent_window,
+                heading=heading,
+                body=body,
+                responses=[("cancel", "Hủy"), ("apply", "Áp dụng")],
+                default_response="apply",
+                close_response="cancel",
+                suggested_response="apply",
+                on_response=_on_response,
+            )
 
     app = YuseiSettingsApp()
     return app.run([sys.argv[0]])

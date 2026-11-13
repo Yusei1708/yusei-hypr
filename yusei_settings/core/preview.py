@@ -2,10 +2,12 @@
 Visual Preview Generator Engine
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Renders card mockups, SVG badges, and structural previews for
-Waybar layouts, Kitty color swatches, and Rofi launcher structures.
+Waybar layouts, Kitty color swatches, Rofi launchers, and Hyprland animations.
 """
 
 from typing import Dict, Any
+from xml.sax.saxutils import escape as xml_escape
+
 
 class PreviewEngine:
     @staticmethod
@@ -28,7 +30,6 @@ class PreviewEngine:
             bar_w = 24
             bar_h = 76
         elif pos == "SPLIT":
-            # Dual bar top and bottom
             return '''<svg width="300" height="96" viewBox="0 0 300 96" fill="none" xmlns="http://www.w3.org/2000/svg">
   <rect width="300" height="96" rx="8" fill="#1b1c20"/>
   <!-- Top Split Bar -->
@@ -42,7 +43,7 @@ class PreviewEngine:
   <rect x="36" y="76" width="40" height="6" rx="3" fill="#a8c7fa"/>
   <rect x="225" y="76" width="40" height="6" rx="3" fill="#f2b8b5"/>
 </svg>'''
-        else: # TOP
+        else:  # TOP
             bar_y = 8
             bar_x = 20
             bar_w = 260
@@ -84,14 +85,15 @@ class PreviewEngine:
     @staticmethod
     def generate_kitty_svg(palette: Dict[str, Any]) -> str:
         """Generates a terminal preview with window buttons and palette swatches."""
-        bg = palette.get("background", "#141316")
-        fg = palette.get("foreground", "#e3e2e6")
+        bg = xml_escape(str(palette.get("background", "#141316")), {'"': "&quot;", "'": "&apos;"})
+        fg = xml_escape(str(palette.get("foreground", "#e3e2e6")), {'"': "&quot;", "'": "&apos;"})
         swatches = palette.get("swatches", ["#1f1f23", "#f2b8b5", "#b4e09f", "#fce788", "#a8c7fa", "#d3bbff", "#99e7eb", "#e3e2e6"])
-        
+
         swatches_svg = ""
         for i, color in enumerate(swatches[:8]):
             x = 24 + (i * 32)
-            swatches_svg += f'<rect x="{x}" y="56" width="24" height="20" rx="4" fill="{color}" />\n'
+            safe_col = xml_escape(str(color), {'"': "&quot;", "'": "&apos;"})
+            swatches_svg += f'<rect x="{x}" y="56" width="24" height="20" rx="4" fill="{safe_col}" />\n'
 
         return f'''<svg width="300" height="96" viewBox="0 0 300 96" fill="none" xmlns="http://www.w3.org/2000/svg">
   <rect width="300" height="96" rx="8" fill="{bg}" stroke="#3b3e4a" stroke-width="1"/>
@@ -121,8 +123,7 @@ class PreviewEngine:
   <rect x="154" y="42" width="52" height="38" rx="6" fill="#242630"/>
   <rect x="216" y="42" width="52" height="38" rx="6" fill="#a8c7fa" opacity="0.3"/>
 </svg>'''
-        else: # Centered Card
-            return '''<svg width="300" height="96" viewBox="0 0 300 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+        return '''<svg width="300" height="96" viewBox="0 0 300 96" fill="none" xmlns="http://www.w3.org/2000/svg">
   <rect width="300" height="96" rx="8" fill="#18191f"/>
   <!-- Centered Modal Card -->
   <rect x="50" y="10" width="200" height="76" rx="12" fill="#282933" stroke="#4a4d5e" stroke-width="1"/>
@@ -134,4 +135,43 @@ class PreviewEngine:
   <rect x="156" y="46" width="80" height="14" rx="4" fill="#353745"/>
   <rect x="64" y="66" width="80" height="12" rx="4" fill="#353745"/>
   <rect x="156" y="66" width="80" height="12" rx="4" fill="#353745"/>
+</svg>'''
+
+    @staticmethod
+    def generate_animation_svg(name: str = "", preset_id: str = "") -> str:
+        """Generates a cubic-bezier physics curve & window motion preview SVG."""
+        ident = f"{name} {preset_id}".lower()
+        if "disable" in ident:
+            curve_d = "M 28 74 L 146 74 L 146 22"
+            accent = "#f2b8b5"
+            badge = "INSTANT"
+        elif "fast" in ident or "snappy" in ident or "hyde" in ident:
+            curve_d = "M 28 74 C 46 20, 82 22, 146 22"
+            accent = "#b4e09f"
+            badge = "SNAPPY"
+        elif "end-4" in ident or "end 4" in ident or "expressive" in ident:
+            curve_d = "M 28 74 C 36 16, 72 14, 146 22"
+            accent = "#d3bbff"
+            badge = "SPRING"
+        else:
+            curve_d = "M 28 74 C 58 70, 88 22, 146 22"
+            accent = "#a8c7fa"
+            badge = "FLUID"
+
+        safe_badge = xml_escape(badge)
+        return f'''<svg width="300" height="96" viewBox="0 0 300 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="300" height="96" rx="8" fill="#181920" stroke="#363846" stroke-width="1"/>
+  <!-- Bezier Coordinate Grid -->
+  <rect x="20" y="14" width="134" height="68" rx="6" fill="#20222c" stroke="#313444" stroke-width="1"/>
+  <line x1="28" y1="74" x2="146" y2="22" stroke="#3b3e52" stroke-width="1" stroke-dasharray="3 3"/>
+  <path d="{curve_d}" stroke="{accent}" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+  <circle cx="28" cy="74" r="3.5" fill="{accent}"/>
+  <circle cx="146" cy="22" r="3.5" fill="{accent}"/>
+  <!-- Motion Window Frames -->
+  <rect x="170" y="34" width="46" height="38" rx="6" fill="#2b2e3b" opacity="0.55" stroke="#45485c" stroke-width="1"/>
+  <rect x="192" y="24" width="54" height="44" rx="7" fill="#323647" opacity="0.8" stroke="#5b607a" stroke-width="1"/>
+  <rect x="216" y="16" width="64" height="52" rx="8" fill="#262936" stroke="{accent}" stroke-width="1.5"/>
+  <!-- Motion Curve Label -->
+  <rect x="224" y="74" width="56" height="14" rx="7" fill="#262938" stroke="{accent}" stroke-width="0.8"/>
+  <text x="252" y="84" text-anchor="middle" font-family="sans-serif" font-size="8" font-weight="600" fill="{accent}">{safe_badge}</text>
 </svg>'''
