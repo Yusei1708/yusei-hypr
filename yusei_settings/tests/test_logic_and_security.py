@@ -20,6 +20,8 @@ from yusei_settings.core.power import PowerManager
 from yusei_settings.core.safety import SafetyEngine
 from yusei_settings.server import create_server
 from yusei_settings.ui.gtk.window import (
+    _apply_hypr_lua_or_keyword,
+    _parse_hypr_bool_option,
     _read_user_decorations_state,
     _update_user_decorations_file,
 )
@@ -548,6 +550,69 @@ class TestGtkWindowDecorationsHelpersCommit5(unittest.TestCase):
             self.assertIn("active_opacity = 0.95 # keep comment", text2)
             self.assertIn("size = 5", text2)
             self.assertEqual(_read_user_decorations_state(mock_home), (20, True))
+
+    def test_parse_hypr_bool_option_handles_057_bool_and_legacy_int(self):
+        """_parse_hypr_bool_option supports both Hyprland 0.57 `bool:` and legacy `int:` outputs."""
+        self.assertIs(_parse_hypr_bool_option("bool: false\nset: true\n"), False)
+        self.assertIs(_parse_hypr_bool_option("bool: true\nset: true\n"), True)
+        self.assertIs(_parse_hypr_bool_option("int: 0\nset: true\n"), False)
+        self.assertIs(_parse_hypr_bool_option("int: 1\nset: true\n"), True)
+        self.assertIsNone(_parse_hypr_bool_option("no such option"))
+
+    def test_apply_hypr_lua_or_keyword_prefers_eval_and_falls_back(self):
+        """_apply_hypr_lua_or_keyword uses `hyprctl eval` on Lua mode and falls back only on failure."""
+        with mock.patch("yusei_settings.ui.gtk.window.subprocess.run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess(
+                args=["hyprctl", "eval", "..."], returncode=0, stdout="ok\n", stderr=""
+            )
+            _apply_hypr_lua_or_keyword(
+                "hl.config({ decoration = { blur = { enabled = true } } })",
+                "decoration:blur:enabled",
+                "true",
+            )
+            self.assertEqual(mock_run.call_count, 1)
+            self.assertEqual(mock_run.call_args[0][0][1], "eval")
+
+        with mock.patch("yusei_settings.ui.gtk.window.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                subprocess.CompletedProcess(
+                    args=["hyprctl", "eval", "..."], returncode=7, stdout="unknown request\n", stderr=""
+                ),
+                subprocess.CompletedProcess(
+                    args=["hyprctl", "keyword", "decoration:blur:enabled", "true"], returncode=0, stdout="ok\n", stderr=""
+                ),
+            ]
+            _apply_hypr_lua_or_keyword(
+                "hl.config({ decoration = { blur = { enabled = true } } })",
+                "decoration:blur:enabled",
+                "true",
+            )
+            self.assertEqual(mock_run.call_count, 2)
+            self.assertEqual(mock_run.call_args_list[1][0][0][:3], ["hyprctl", "keyword", "decoration:blur:enabled"])
+
+    def test_apply_wallpaper_syncs_wallpaper_effects_current_symlink(self):
+        """Applying a wallpaper updates both rofi/.current_wallpaper and wallpaper_effects/.wallpaper_current."""
+        with tempfile.TemporaryDirectory(prefix="yusei_wp_fx_") as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            home.mkdir()
+            wp = root / "wp.png"
+            wp.write_bytes(b"\x89PNG\r\n\x1a\n")
+
+            engine = SafetyEngine(target_home=str(home))
+            with mock.patch.dict(
+                os.environ,
+                {"HOME": str(home), "HYPRLAND_INSTANCE_SIGNATURE": "sig-test"},
+                clear=False,
+            ), mock.patch.object(engine, "_run_wallpaper_reload"):
+                engine.apply_change("wallpaper", wp.stem, str(wp), confirmed=True, skip_snapshot=True)
+
+            effects_link = home / ".config" / "hypr" / "wallpaper_effects" / ".wallpaper_current"
+            rofi_link = home / ".config" / "rofi" / ".current_wallpaper"
+            self.assertTrue(effects_link.is_symlink())
+            self.assertEqual(effects_link.resolve(), wp.resolve())
+            self.assertTrue(rofi_link.is_symlink())
+            self.assertEqual(rofi_link.resolve(), wp.resolve())
 
 
 if __name__ == "__main__":

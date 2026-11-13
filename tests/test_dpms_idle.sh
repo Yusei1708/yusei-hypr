@@ -44,7 +44,7 @@ cleanup_dpms_suite() {
 }
 trap cleanup_dpms_suite EXIT
 
-TOTAL_TESTS=42
+TOTAL_TESTS=44
 echo -e "${BLUE}${BOLD}:: [Test Suite] DPMS & Idle/Wake Stability${NC}"
 echo "1..${TOTAL_TESTS}"
 
@@ -567,6 +567,11 @@ decoration {
     }
 }
 EOF
+cat <<'EOF' > "$LUA_HOME/.config/hypr/UserConfigs/UserSettings.conf"
+misc {
+    anr_missed_pings = 25
+}
+EOF
 cat <<'EOF' > "$LUA_HOME/.config/hypr/animations.conf"
 bezier = customBezier, 0.05, 0.9, 0.1, 1.05
 EOF
@@ -588,6 +593,8 @@ os.execute = function() return true, "exit", 0 end
 local recorded = {
     monitors = {},
     window_rules = {},
+    layer_rules = {},
+    binds = {},
     animations = {},
     envs = {},
     configs = {},
@@ -611,13 +618,13 @@ hl = setmetatable({
     animation = function(tbl) table.insert(recorded.animations, tbl) end,
     env = function(k, v) recorded.envs[k] = v end,
     config = function(tbl) table.insert(recorded.configs, tbl) end,
-    bind = function() end,
+    bind = function(keys, dsp, flags) table.insert(recorded.binds, { keys = keys, dsp = dsp, flags = flags }) end,
     curve = function() end,
     device = function() end,
     dispatch = function() end,
     exec_cmd = function() end,
     gesture = function() end,
-    layer_rule = function() end,
+    layer_rule = function(tbl) table.insert(recorded.layer_rules, tbl) end,
     workspace_rule = function() end,
     on = function() end,
 }, {
@@ -666,16 +673,67 @@ assert(fade_found and fade_enabled == false, "Expected fadeDpms disabled")
 assert(recorded.envs["__NV_PRIME_RENDER_OFFLOAD"] == "1", "nvidia.conf env missing")
 assert(recorded.envs["YUSEI_CUSTOM_PREF"] == "42", "userprefs.conf env missing")
 
--- 5. UserDecorations.conf rounding & blur.enabled applied
-local got_rounding, got_blur = nil, nil
+-- 5. UserDecorations.conf & UserSettings.conf applied
+local got_rounding, got_blur, got_anr = nil, nil, nil
 for _, cfg in ipairs(recorded.configs) do
     if cfg.decoration then
         if cfg.decoration.rounding ~= nil then got_rounding = cfg.decoration.rounding end
         if cfg.decoration.blur and cfg.decoration.blur.enabled ~= nil then got_blur = cfg.decoration.blur.enabled end
     end
+    if cfg.misc and cfg.misc.anr_missed_pings ~= nil then
+        got_anr = cfg.misc.anr_missed_pings
+    end
 end
-assert(got_rounding == 7 and got_blur == false,
-    string.format("Expected rounding=7, blur=false, got rounding=%s blur=%s", tostring(got_rounding), tostring(got_blur)))
+assert(got_rounding == 7 and got_blur == false and got_anr == 25,
+    string.format("Expected rounding=7, blur=false, anr=25; got rounding=%s blur=%s anr=%s",
+        tostring(got_rounding), tostring(got_blur), tostring(got_anr)))
+
+-- 6. Restored layer blur rules, fullscreen idle_inhibit, and laptop/ROG keybinds
+local expected_layers = {
+    ["waybar"] = false,
+    ["rofi"] = false,
+    ["swaync-control-center"] = false,
+    ["swaync-notification-window"] = false,
+    ["notifications"] = false,
+    ["quickshell:overview"] = false,
+}
+for _, lr in ipairs(recorded.layer_rules) do
+    local ns = lr.match and lr.match.namespace
+    if ns and expected_layers[ns] ~= nil and lr.blur == true and lr.ignore_alpha == 0.5 then
+        expected_layers[ns] = true
+    end
+end
+for ns, ok in pairs(expected_layers) do
+    assert(ok, "Missing layer blur rule with ignore_alpha=0.5 for namespace: " .. ns)
+end
+
+local has_idle_inhibit, has_pip = false, false
+for _, wr in ipairs(recorded.window_rules) do
+    if wr.match and wr.match.fullscreen == true and wr.idle_inhibit == "fullscreen" then
+        has_idle_inhibit = true
+    end
+    if wr.name == "Picture-in-Picture" and wr.pin == true then
+        has_pip = true
+    end
+end
+assert(has_idle_inhibit, "Missing fullscreen idle_inhibit window rule")
+assert(has_pip, "Missing Picture-in-Picture window rule")
+
+local expected_binds = {
+    ["XF86KbdBrightnessUp"] = false,
+    ["XF86KbdBrightnessDown"] = false,
+    ["XF86Launch1"] = false,
+    ["XF86Launch3"] = false,
+    ["XF86Launch4"] = false,
+}
+for _, b in ipairs(recorded.binds) do
+    if b.keys and expected_binds[b.keys] ~= nil then
+        expected_binds[b.keys] = true
+    end
+end
+for k, ok in pairs(expected_binds) do
+    assert(ok, "Missing laptop/ROG keybind in hyprland.lua: " .. k)
+end
 
 print("LUA_HYPRLAND_OK")
 EOF
@@ -1182,6 +1240,164 @@ test_notify_send_missing_icon_fallback() {
 }
 assert_check "bin/notify-send falls back missing swaync/images paths to icons/ or standard Freedesktop icon names" \
     "test_notify_send_missing_icon_fallback"
+
+# ------------------------------------------------------------------------------
+# 43. ChangeBlur.sh Re-enables Blur, Toggles Normal/Less Blur, & Persists Config
+# ------------------------------------------------------------------------------
+test_change_blur_enables_toggles_and_persists() {
+    local cb_sandbox="$TMP_ROOT/change_blur"
+    local cb_home="$cb_sandbox/home"
+    local cb_bin="$cb_sandbox/bin"
+    local cb_dec="$cb_home/.config/hypr/UserConfigs/UserDecorations.conf"
+    local cb_log="$cb_sandbox/hyprctl.log"
+    mkdir -p "$cb_home/.config/hypr/UserConfigs" "$cb_home/.config/swaync/images" "$cb_bin"
+
+    cat <<'EOF' > "$cb_dec"
+decoration {
+  rounding = 10
+  blur {
+    enabled = false
+    size = 6
+    passes = 3
+    xray = true
+  }
+}
+EOF
+
+    cat <<'EOF' > "$cb_bin/hyprctl"
+#!/usr/bin/env bash
+if [[ "${1:-}" == "-j" && "${2:-}" == "getoption" ]]; then
+    case "${3:-}" in
+        decoration:blur:enabled) echo "{\"option\":\"decoration:blur:enabled\",\"bool\":${MOCK_BLUR_ENABLED:-false},\"set\":true}" ;;
+        decoration:blur:passes)  echo "{\"option\":\"decoration:blur:passes\",\"int\":${MOCK_BLUR_PASSES:-2},\"set\":true}" ;;
+    esac
+    exit 0
+fi
+echo "$*" >> "${CB_LOG:?}"
+if [[ "${1:-}" == "eval" && "${MOCK_EVAL_FAIL:-0}" == "1" ]]; then
+    echo "unknown request"
+    exit 7
+fi
+echo "ok"
+EOF
+    cat <<'EOF' > "$cb_bin/notify-send"
+#!/usr/bin/env bash
+echo "$*" >> "${CB_NOTIFY_LOG:?}"
+EOF
+    chmod +x "$cb_bin/hyprctl" "$cb_bin/notify-send"
+
+    local script="$REPO_ROOT/config/hypr/scripts/ChangeBlur.sh"
+
+    # Case 1: blur:enabled=false + passes=2 -> enables blur + Normal Blur (size=5, passes=2) + updates UserDecorations.conf
+    : > "$cb_log"
+    : > "${cb_sandbox}/notify.log"
+    PATH="$cb_bin:$ORIG_PATH" HOME="$cb_home" CB_LOG="$cb_log" CB_NOTIFY_LOG="$cb_sandbox/notify.log" \
+        MOCK_BLUR_ENABLED="false" MOCK_BLUR_PASSES="2" bash "$script"
+
+    grep -q 'enabled = true, size = 5, passes = 2' "$cb_log" && \
+    grep -q 'Normal Blur' "$cb_sandbox/notify.log" && \
+    grep -q 'enabled = true' "$cb_dec" && \
+    grep -q 'size = 5' "$cb_dec" && \
+    grep -q 'passes = 2' "$cb_dec" && \
+    grep -q 'xray = true' "$cb_dec" || return 1
+
+    # Case 2: blur:enabled=true + passes=2 -> Less Blur (enabled=true, size=2, passes=1)
+    : > "$cb_log"
+    : > "$cb_sandbox/notify.log"
+    PATH="$cb_bin:$ORIG_PATH" HOME="$cb_home" CB_LOG="$cb_log" CB_NOTIFY_LOG="$cb_sandbox/notify.log" \
+        MOCK_BLUR_ENABLED="true" MOCK_BLUR_PASSES="2" bash "$script"
+
+    grep -q 'enabled = true, size = 2, passes = 1' "$cb_log" && \
+    grep -q 'Less Blur' "$cb_sandbox/notify.log" && \
+    grep -q 'size = 2' "$cb_dec" && \
+    grep -q 'passes = 1' "$cb_dec" || return 1
+
+    # Case 3: legacy keyword fallback when eval fails
+    : > "$cb_log"
+    PATH="$cb_bin:$ORIG_PATH" HOME="$cb_home" CB_LOG="$cb_log" CB_NOTIFY_LOG="$cb_sandbox/notify.log" \
+        MOCK_BLUR_ENABLED="true" MOCK_BLUR_PASSES="1" MOCK_EVAL_FAIL="1" bash "$script"
+
+    grep -q 'keyword decoration:blur:enabled true' "$cb_log" && \
+    grep -q 'keyword decoration:blur:size 5' "$cb_log" && \
+    grep -q 'keyword decoration:blur:passes 2' "$cb_log"
+}
+assert_check "ChangeBlur.sh re-enables blur from false, toggles Normal/Less Blur, and persists UserDecorations.conf" \
+    "test_change_blur_enables_toggles_and_persists"
+
+# ------------------------------------------------------------------------------
+# 44. ToggleOpacity, GameMode (.bool + swww PATH), & MonitorProfiles Reload
+# ------------------------------------------------------------------------------
+test_scripts_lua_and_swww_hardening() {
+    local sc_sandbox="$TMP_ROOT/scripts_hardening"
+    local sc_home="$sc_sandbox/home"
+    local sc_bin="$sc_sandbox/bin"
+    local sc_runtime="$sc_sandbox/runtime"
+    local sc_log="$sc_sandbox/cmd.log"
+    mkdir -p "$sc_home/.config/hypr/Monitor_Profiles" "$sc_home/.config/hypr/scripts" \
+             "$sc_home/.config/rofi" "$sc_home/.config/swaync/images" "$sc_home/.local/bin" \
+             "$sc_bin" "$sc_runtime"
+
+    : > "$sc_home/wall.png"
+    ln -sf "$sc_home/wall.png" "$sc_home/.config/rofi/.current_wallpaper"
+    echo "monitor = eDP-1, 1920x1080@60, 0x0, 1" > "$sc_home/.config/hypr/Monitor_Profiles/default.conf"
+    cat <<'EOF' > "$sc_home/.config/hypr/scripts/RefreshNoWaybar.sh"
+#!/usr/bin/env bash
+exit 0
+EOF
+    chmod +x "$sc_home/.config/hypr/scripts/RefreshNoWaybar.sh"
+
+    cat <<'EOF' > "$sc_bin/hyprctl"
+#!/usr/bin/env bash
+if [[ "${1:-}" == "getoption" && "${2:-}" == "animations:enabled" && "${3:-}" == "-j" ]]; then
+    echo "{\"option\":\"animations:enabled\",\"bool\":${MOCK_ANIM_ENABLED:-false},\"set\":true}"
+    exit 0
+fi
+echo "hyprctl $*" >> "${SC_LOG:?}"
+echo "ok"
+EOF
+    cat <<'EOF' > "$sc_bin/notify-send"
+#!/usr/bin/env bash
+exit 0
+EOF
+    cat <<'EOF' > "$sc_bin/rofi"
+#!/usr/bin/env bash
+echo "default"
+EOF
+    cat <<'EOF' > "$sc_home/.local/bin/swww-daemon"
+#!/usr/bin/env bash
+echo "local-swww-daemon $*" >> "${SC_LOG:?}"
+EOF
+    cat <<'EOF' > "$sc_home/.local/bin/swww"
+#!/usr/bin/env bash
+echo "local-swww $*" >> "${SC_LOG:?}"
+exit 0
+EOF
+    chmod +x "$sc_bin/hyprctl" "$sc_bin/notify-send" "$sc_bin/rofi" \
+             "$sc_home/.local/bin/swww-daemon" "$sc_home/.local/bin/swww"
+
+    # ToggleOpacity.sh uses named global-opacity-override rule
+    : > "$sc_log"
+    PATH="$sc_bin:$ORIG_PATH" HOME="$sc_home" XDG_RUNTIME_DIR="$sc_runtime" SC_LOG="$sc_log" \
+        bash "$REPO_ROOT/config/hypr/scripts/ToggleOpacity.sh"
+    grep -q "name = 'global-opacity-override'" "$sc_log" && \
+    grep -q "1.0 override 1.0 override 1.0 override" "$sc_log" || return 1
+
+    # GameMode.sh handles .bool=false cleanly, uses ~/.local/bin/swww, and calls reload config-only
+    : > "$sc_log"
+    PATH="$sc_bin:/usr/bin:/bin" HOME="$sc_home" XDG_RUNTIME_DIR="$sc_runtime" SC_LOG="$sc_log" \
+        MOCK_ANIM_ENABLED="false" bash "$REPO_ROOT/config/hypr/scripts/GameMode.sh"
+    grep -q "local-swww img" "$sc_log" && \
+    grep -q "hyprctl reload config-only" "$sc_log" || return 1
+
+    # MonitorProfiles.sh triggers hyprctl reload config-only after copying profile
+    : > "$sc_log"
+    PATH="$sc_bin:$ORIG_PATH" HOME="$sc_home" XDG_RUNTIME_DIR="$sc_runtime" SC_LOG="$sc_log" \
+        bash "$REPO_ROOT/config/hypr/scripts/MonitorProfiles.sh"
+    grep -q "hyprctl reload config-only" "$sc_log" && \
+    grep -q "1920x1080@60" "$sc_home/.config/hypr/monitors.conf"
+}
+assert_check "ToggleOpacity uses named rule, GameMode parses bool JSON & local swww, MonitorProfiles reloads config" \
+    "test_scripts_lua_and_swww_hardening"
 
 export HOME="$ORIG_HOME"
 export PATH="$ORIG_PATH"
