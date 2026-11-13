@@ -251,6 +251,46 @@ def _update_user_decorations_file(
     return user_dec
 
 
+def _parse_hypr_bool_option(out: str) -> Optional[bool]:
+    """Parses Hyprland getoption output across 0.57+ (`bool: true/false`) and legacy (`int: 1/0`)."""
+    m_bool = re.search(r"\bbool:\s*(true|false|yes|no|1|0)\b", out, re.IGNORECASE)
+    if m_bool:
+        return m_bool.group(1).lower() in ("true", "yes", "1")
+    m_int = re.search(r"\bint:\s*(\d+)\b", out)
+    if m_int:
+        return int(m_int.group(1)) != 0
+    return None
+
+
+def _apply_hypr_lua_or_keyword(lua_expr: str, keyword: str, value: str) -> None:
+    """Applies a Hyprland config option via 0.57+ `hyprctl eval` first, falling back to `hyprctl keyword`."""
+    try:
+        res = subprocess.run(
+            ["hyprctl", "eval", lua_expr],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+        stdout = (res.stdout or "").strip().lower()
+        combined = f"{stdout}\n{(res.stderr or '').strip().lower()}"
+        if res.returncode == 0 and stdout.startswith("ok") and "error" not in combined and "unknown" not in combined:
+            return
+    except Exception:
+        pass
+    try:
+        subprocess.run(
+            ["hyprctl", "keyword", keyword, str(value)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=2,
+            check=False,
+        )
+    except Exception:
+        pass
+
+
 def _read_user_decorations_state(home: Path) -> Tuple[int, bool]:
     """Reads fallback rounding and blur state from configs under `home`."""
     rounding = 16
@@ -482,9 +522,9 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
                 pass
             try:
                 out = subprocess.check_output(["hyprctl", "getoption", "decoration:blur:enabled"], text=True, timeout=2)
-                m = re.search(r"int:\s*(\d+)", out)
-                if m:
-                    blur_enabled = (int(m.group(1)) == 1)
+                parsed_blur = _parse_hypr_bool_option(out)
+                if parsed_blur is not None:
+                    blur_enabled = parsed_blur
             except Exception:
                 pass
             return rounding, blur_enabled
@@ -494,14 +534,11 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
                 return
             val = int(spin_btn.get_value())
             if self._is_live_session():
-                try:
-                    subprocess.Popen(
-                        ["hyprctl", "keyword", "decoration:rounding", str(val)],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                    )
-                except Exception:
-                    pass
+                _apply_hypr_lua_or_keyword(
+                    f"hl.config({{ decoration = {{ rounding = {val} }} }})",
+                    "decoration:rounding",
+                    str(val),
+                )
             try:
                 _update_user_decorations_file(self.safety.home, rounding=val)
             except Exception as exc:
@@ -513,14 +550,11 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
             active = bool(switch_row.get_active())
             val_str = "true" if active else "false"
             if self._is_live_session():
-                try:
-                    subprocess.Popen(
-                        ["hyprctl", "keyword", "decoration:blur:enabled", val_str],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                    )
-                except Exception:
-                    pass
+                _apply_hypr_lua_or_keyword(
+                    f"hl.config({{ decoration = {{ blur = {{ enabled = {val_str} }} }} }})",
+                    "decoration:blur:enabled",
+                    val_str,
+                )
             try:
                 _update_user_decorations_file(self.safety.home, blur_enabled=active)
             except Exception as exc:

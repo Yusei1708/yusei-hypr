@@ -541,14 +541,17 @@ class SafetyEngine:
                     pass
             elif canonical_cat == "wallpaper":
                 resolved_wp = str(Path(source_path).resolve())
-                rofi_link = self.config_dir / "rofi" / ".current_wallpaper"
-                try:
-                    rofi_link.parent.mkdir(parents=True, exist_ok=True)
-                    if rofi_link.exists() or rofi_link.is_symlink():
-                        rofi_link.unlink()
-                    rofi_link.symlink_to(resolved_wp)
-                except Exception:
-                    pass
+                for link_path in (
+                    self.config_dir / "rofi" / ".current_wallpaper",
+                    self.config_dir / "hypr" / "wallpaper_effects" / ".wallpaper_current",
+                ):
+                    try:
+                        link_path.parent.mkdir(parents=True, exist_ok=True)
+                        if link_path.exists() or link_path.is_symlink():
+                            link_path.unlink()
+                        link_path.symlink_to(resolved_wp)
+                    except Exception:
+                        pass
 
                 if self._active_wp_proc and self._active_wp_proc.poll() is None:
                     try:
