@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# yusei-hypr: DPMS, Idle & Sleep-Wake Regression Test Suite
+# yusei-hypr: DPMS, Idle, Lock & Sleep-Wake Regression Test Suite
 # ==============================================================================
-# - Verifies DpmsControl.sh exists, is executable, and passes bash -n
+# - Verifies DpmsControl.sh and LockScreen.sh exist, are executable, pass bash -n
 # - Verifies hypridle.conf does not use bare toggle syntax hl.dsp.dpms('on'/'off')
 # - Verifies hyprland.lua disables fadeDpms and fixes Lua disabled animation pattern
+# - Verifies no-grace lock policy (--grace absent, inhibit_sleep = 3, $PAMFAIL,
+#   pre-sleep --lock-and-wait wiring in wlogout/hyprland.lua/keybinds/waybar)
 # - Tests idempotent DPMS on/off, Lua table syntax, legacy fallback, dim/restore,
-#   and post-suspend wake recovery via isolated mock hyprctl/brightnessctl binaries
+#   post-suspend wake recovery, and LockScreen.sh fallback/wait behavior via
+#   isolated mock binaries
 # ==============================================================================
 
 set -euo pipefail
@@ -21,13 +24,18 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 DPMS_SCRIPT="$REPO_ROOT/config/hypr/scripts/DpmsControl.sh"
+LOCK_SCRIPT="$REPO_ROOT/config/hypr/scripts/LockScreen.sh"
 HYPRIDLE_CONF="$REPO_ROOT/config/hypr/hypridle.conf"
+HYPRLOCK_CONF="$REPO_ROOT/config/hypr/hyprlock.conf"
 HYPRLAND_LUA="$REPO_ROOT/config/hypr/hyprland.lua"
+KEYBINDS_CONF="$REPO_ROOT/config/hypr/keybinds.conf"
+WLOGOUT_LAYOUT="$REPO_ROOT/config/wlogout/layout"
+WAYBAR_CUSTOM="$REPO_ROOT/config/waybar/ModulesCustom"
 
 TMP_ROOT="$(mktemp -d -t yusei_dpms_test_XXXXXX)"
 trap 'rm -rf "$TMP_ROOT"' EXIT
 
-TOTAL_TESTS=12
+TOTAL_TESTS=25
 echo -e "${BLUE}${BOLD}:: [Test Suite] DPMS & Idle/Wake Stability${NC}"
 echo "1..${TOTAL_TESTS}"
 
@@ -243,6 +251,212 @@ reset_logs
 assert_check "--wake restores DPMS ON and restores backlight brightness after suspend" \
     "[ \"\$(cat '$MOCK_STATE/dpms_state')\" = 'true' ] && [ \"\$(cat '$MOCK_STATE/pct')\" = '65' ] && [ ! -f '$YUSEI_DIM_FLAG_FILE' ]"
 
+# ------------------------------------------------------------------------------
+# 3. No-Grace Lock Policy & LockScreen.sh Static + Mocked Runtime Checks
+# ------------------------------------------------------------------------------
+check_lock_static_no_grace() {
+    ! grep -q -- '--grace' "$HYPRIDLE_CONF" && ! grep -q -- '--grace' "$LOCK_SCRIPT"
+}
+
+check_hypridle_lock_policy() {
+    grep -qE '^[[:space:]]*inhibit_sleep[[:space:]]*=[[:space:]]*3[[:space:]]*$' "$HYPRIDLE_CONF" && \
+    grep -qE '^[[:space:]]*lock_cmd[[:space:]]*=[[:space:]]*pidof hyprlock \|\| hyprlock -q[[:space:]]*$' "$HYPRIDLE_CONF"
+}
+
+check_hyprlock_pamfail() {
+    grep -qE '^[[:space:]]*fail_text[[:space:]]*=.*\$PAMFAIL' "$HYPRLOCK_CONF"
+}
+
+check_pre_sleep_lock_wiring() {
+    jq -se '
+        (.[] | select(.label=="suspend") | .action | test("LockScreen\\.sh.*--lock-and-wait\\s*&&\\s*systemctl suspend")) and
+        (.[] | select(.label=="hibernate") | .action | test("LockScreen\\.sh.*--lock-and-wait\\s*&&\\s*systemctl hibernate"))
+    ' "$WLOGOUT_LAYOUT" >/dev/null && \
+    grep -qE 'hl\.bind\("XF86Sleep".*LockScreen\.sh --lock-and-wait && systemctl suspend' "$HYPRLAND_LUA" && \
+    grep -qE 'XF86Sleep.*LockScreen\.sh --lock-and-wait && systemctl suspend' "$KEYBINDS_CONF"
+}
+
+check_waybar_hypridle_right_click() {
+    grep -A10 '"custom/hypridle"' "$WAYBAR_CUSTOM" | grep -qE '"on-click-right"[[:space:]]*:[[:space:]]*".*LockScreen\.sh"'
+}
+
+assert_check "LockScreen.sh exists, is executable, and passes bash -n syntax check" \
+    "[ -f '$LOCK_SCRIPT' ] && [ -x '$LOCK_SCRIPT' ] && bash -n '$LOCK_SCRIPT'"
+
+assert_check "hypridle.conf and LockScreen.sh contain zero --grace flags" \
+    "check_lock_static_no_grace"
+
+assert_check "hypridle.conf enforces inhibit_sleep = 3 and lock_cmd = pidof hyprlock || hyprlock -q" \
+    "check_hypridle_lock_policy"
+
+assert_check "hyprlock.conf exposes \$PAMFAIL in fail_text" \
+    "check_hyprlock_pamfail"
+
+assert_check "wlogout suspend/hibernate, hyprland.lua XF86Sleep, and keybinds.conf XF86Sleep invoke LockScreen.sh --lock-and-wait before sleep" \
+    "check_pre_sleep_lock_wiring"
+
+assert_check "waybar/ModulesCustom custom/hypridle on-click-right invokes LockScreen.sh" \
+    "check_waybar_hypridle_right_click"
+
+# Setup isolated mocks for pgrep, pidof, loginctl, hyprlock, plus isolated HOME
+cat <<'EOF' > "$MOCK_BIN/pidof"
+#!/usr/bin/env bash
+set -euo pipefail
+STATE_DIR="${MOCK_STATE_DIR:?}"
+target="${1:-}"
+if [[ "$target" == "hyprlock" && -f "$STATE_DIR/hyprlock_running" ]]; then
+    echo "4242"
+    exit 0
+fi
+exit 1
+EOF
+chmod +x "$MOCK_BIN/pidof"
+
+cat <<'EOF' > "$MOCK_BIN/pgrep"
+#!/usr/bin/env bash
+set -euo pipefail
+STATE_DIR="${MOCK_STATE_DIR:?}"
+echo "pgrep:$*" >> "$STATE_DIR/pgrep.log"
+if [[ "${MOCK_HYPRIDLE_ACTIVE:-0}" == "1" ]]; then
+    echo "9999"
+    exit 0
+fi
+exit 1
+EOF
+chmod +x "$MOCK_BIN/pgrep"
+
+cat <<'EOF' > "$MOCK_BIN/loginctl"
+#!/usr/bin/env bash
+set -euo pipefail
+STATE_DIR="${MOCK_STATE_DIR:?}"
+echo "loginctl:$*" >> "$STATE_DIR/loginctl.log"
+if [[ "$*" == *"lock-session"* && "${MOCK_LOGINCTL_SPAWNS_HYPRLOCK:-0}" == "1" ]]; then
+    : > "$STATE_DIR/hyprlock_running"
+fi
+exit 0
+EOF
+chmod +x "$MOCK_BIN/loginctl"
+
+cat <<'EOF' > "$MOCK_BIN/hyprlock"
+#!/usr/bin/env bash
+set -euo pipefail
+STATE_DIR="${MOCK_STATE_DIR:?}"
+if [[ "${MOCK_HYPRLOCK_SLEEP:-0}" != "0" ]]; then
+    sleep "${MOCK_HYPRLOCK_SLEEP}"
+fi
+if [[ "${MOCK_HYPRLOCK_FAIL:-0}" == "1" ]]; then
+    echo "hyprlock:$*" >> "$STATE_DIR/hyprlock.log"
+    exit 1
+fi
+: > "$STATE_DIR/hyprlock_running"
+echo "hyprlock:$*" >> "$STATE_DIR/hyprlock.log"
+exit 0
+EOF
+chmod +x "$MOCK_BIN/hyprlock"
+
+ORIG_HOME="$HOME"
+FAKE_HOME="$TMP_ROOT/fake_home"
+mkdir -p "$FAKE_HOME"
+export HOME="$FAKE_HOME"
+export YUSEI_LOCK_SETTLE_DELAY=0
+
+reset_lock_state() {
+    rm -f "$MOCK_STATE/hyprlock_running" \
+          "$MOCK_STATE/suspend_allowed" \
+          "$MOCK_STATE/suspend_blocked" \
+          "$MOCK_STATE/lock_err.log"
+    : > "$MOCK_STATE/pgrep.log"
+    : > "$MOCK_STATE/loginctl.log"
+    : > "$MOCK_STATE/hyprlock.log"
+}
+
+wait_for_file_content() {
+    local file="$1"
+    local pattern="$2"
+    local attempts=40
+    local i=0
+    while (( i < attempts )); do
+        if [[ -f "$file" ]] && grep -qE -- "$pattern" "$file" 2>/dev/null; then
+            return 0
+        fi
+        sleep 0.05
+        i=$((i + 1))
+    done
+    return 1
+}
+
+# Test 19: Dead hypridle + loginctl returning 0 -> directly launches hyprlock -q
+reset_lock_state
+MOCK_HYPRIDLE_ACTIVE=0 MOCK_LOGINCTL_SPAWNS_HYPRLOCK=0 MOCK_HYPRLOCK_FAIL=0 MOCK_HYPRLOCK_SLEEP=0 \
+    "$LOCK_SCRIPT"
+assert_check "LockScreen.sh launches hyprlock -q directly when hypridle is dead" \
+    "wait_for_file_content '$MOCK_STATE/hyprlock.log' '^hyprlock:-q$' && [ ! -s '$MOCK_STATE/loginctl.log' ]"
+
+# Test 20: Active hypridle + loginctl lock-session spawns hyprlock -> calls loginctl, no duplicate hyprlock
+reset_lock_state
+MOCK_HYPRIDLE_ACTIVE=1 MOCK_LOGINCTL_SPAWNS_HYPRLOCK=1 MOCK_HYPRLOCK_FAIL=0 MOCK_HYPRLOCK_SLEEP=0 \
+    "$LOCK_SCRIPT"
+sleep 0.1
+assert_check "LockScreen.sh calls loginctl lock-session without duplicate hyprlock when hypridle spawns hyprlock" \
+    "grep -q '^loginctl:lock-session$' '$MOCK_STATE/loginctl.log' && [ ! -s '$MOCK_STATE/hyprlock.log' ]"
+
+# Test 21: Active hypridle + loginctl lock-session exits 0 silently without spawning hyprlock -> falls back to hyprlock -q
+reset_lock_state
+MOCK_HYPRIDLE_ACTIVE=1 MOCK_LOGINCTL_SPAWNS_HYPRLOCK=0 MOCK_HYPRLOCK_FAIL=0 MOCK_HYPRLOCK_SLEEP=0 \
+    "$LOCK_SCRIPT"
+assert_check "LockScreen.sh falls back to hyprlock -q when loginctl lock-session exits 0 without spawning hyprlock" \
+    "grep -q '^loginctl:lock-session$' '$MOCK_STATE/loginctl.log' && wait_for_file_content '$MOCK_STATE/hyprlock.log' '^hyprlock:-q$'"
+
+# Test 22: Already locked (pidof hyprlock exits 0) -> no-op
+reset_lock_state
+: > "$MOCK_STATE/hyprlock_running"
+MOCK_HYPRIDLE_ACTIVE=1 MOCK_LOGINCTL_SPAWNS_HYPRLOCK=1 MOCK_HYPRLOCK_FAIL=0 MOCK_HYPRLOCK_SLEEP=0 \
+    "$LOCK_SCRIPT"
+sleep 0.1
+assert_check "LockScreen.sh is a safe no-op when hyprlock is already running" \
+    "[ ! -s '$MOCK_STATE/loginctl.log' ] && [ ! -s '$MOCK_STATE/hyprlock.log' ]"
+
+# Test 23: --lock-and-wait succeeds (exit 0) once hyprlock appears via pidof
+reset_lock_state
+set +e
+MOCK_HYPRIDLE_ACTIVE=0 MOCK_LOGINCTL_SPAWNS_HYPRLOCK=0 MOCK_HYPRLOCK_FAIL=0 MOCK_HYPRLOCK_SLEEP=0.15 \
+    "$LOCK_SCRIPT" --lock-and-wait && : > "$MOCK_STATE/suspend_allowed"
+rc_wait_ok=$?
+set -e
+assert_check "LockScreen.sh --lock-and-wait exits 0 once hyprlock appears via pidof" \
+    "[ '$rc_wait_ok' -eq 0 ] && [ -f '$MOCK_STATE/suspend_allowed' ] && wait_for_file_content '$MOCK_STATE/hyprlock.log' '^hyprlock:-q$'"
+
+# Test 24: --lock-and-wait fails non-zero (exit 1) if hyprlock never starts
+reset_lock_state
+set +e
+MOCK_HYPRIDLE_ACTIVE=0 MOCK_LOGINCTL_SPAWNS_HYPRLOCK=0 MOCK_HYPRLOCK_FAIL=1 MOCK_HYPRLOCK_SLEEP=0 \
+    "$LOCK_SCRIPT" --lock-and-wait 2>"$MOCK_STATE/lock_err.log" && : > "$MOCK_STATE/suspend_blocked"
+rc_wait_fail=$?
+set -e
+assert_check "LockScreen.sh --lock-and-wait exits 1 when hyprlock never starts so chained suspend cannot run unlocked" \
+    "[ '$rc_wait_fail' -eq 1 ] && [ ! -f '$MOCK_STATE/suspend_blocked' ] && grep -q 'refusing to unlock-bypass wait' '$MOCK_STATE/lock_err.log'"
+
+# Test 25: -h/--help exits 0; unknown flag exits 2
+reset_lock_state
+check_lock_cli_flags() {
+    local help_short_rc=0 help_long_rc=0 bad_rc=0
+    local out_short="" out_long="" err_bad=""
+    out_short="$("$LOCK_SCRIPT" -h)" || help_short_rc=$?
+    out_long="$("$LOCK_SCRIPT" --help)" || help_long_rc=$?
+    set +e
+    err_bad="$("$LOCK_SCRIPT" --unknown-flag 2>&1 >/dev/null)"
+    bad_rc=$?
+    set -e
+    [ "$help_short_rc" -eq 0 ] && [ "$help_long_rc" -eq 0 ] && [ "$bad_rc" -eq 2 ] && \
+    grep -q -- '--lock-and-wait' <<< "$out_short" && \
+    grep -q -- '--lock-and-wait' <<< "$out_long" && \
+    grep -q 'Unknown option: --unknown-flag' <<< "$err_bad" && \
+    [ ! -s "$MOCK_STATE/loginctl.log" ] && [ ! -s "$MOCK_STATE/hyprlock.log" ]
+}
+assert_check "LockScreen.sh -h/--help exits 0 and unknown flag exits 2" \
+    "check_lock_cli_flags"
+
+export HOME="$ORIG_HOME"
 export PATH="$ORIG_PATH"
 
 echo ""
