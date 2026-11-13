@@ -24,13 +24,13 @@
 }
 {
     "label" : "suspend",
-    "action" : "systemctl suspend",
+    "action" : "\"$HOME/.config/hypr/scripts/LockScreen.sh\" --lock-and-wait && systemctl suspend",
     "text" : "Suspend",
     "keybind" : "u"
 }
 {
     "label" : "hibernate",
-    "action" : "systemctl hibernate",
+    "action" : "\"$HOME/.config/hypr/scripts/LockScreen.sh\" --lock-and-wait && systemctl hibernate",
     "text" : "Hibernate",
     "keybind" : "h"
 }
