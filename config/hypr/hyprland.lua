@@ -735,7 +735,12 @@ hl.bind("XF86AudioPrev", hl.dsp.exec_cmd(scriptsDir .. "/MediaCtrl.sh --prv"), {
 hl.bind("XF86AudioStop", hl.dsp.exec_cmd(scriptsDir .. "/MediaCtrl.sh --stop"), { locked = true })
 hl.bind("XF86MonBrightnessUp", hl.dsp.exec_cmd(scriptsDir .. "/Brightness.sh --inc"), { locked = true, repeating = true })
 hl.bind("XF86MonBrightnessDown", hl.dsp.exec_cmd(scriptsDir .. "/Brightness.sh --dec"), { locked = true, repeating = true })
+hl.bind("XF86KbdBrightnessUp", hl.dsp.exec_cmd(scriptsDir .. "/BrightnessKbd.sh --inc"), { locked = true, repeating = true })
+hl.bind("XF86KbdBrightnessDown", hl.dsp.exec_cmd(scriptsDir .. "/BrightnessKbd.sh --dec"), { locked = true, repeating = true })
 hl.bind("XF86TouchpadToggle", hl.dsp.exec_cmd(scriptsDir .. "/TouchPad.sh"), { locked = true })
+hl.bind("XF86Launch1", hl.dsp.exec_cmd("rog-control-center"))
+hl.bind("XF86Launch3", hl.dsp.exec_cmd("asusctl led-mode -n"))
+hl.bind("XF86Launch4", hl.dsp.exec_cmd("asusctl profile -n"))
 
 -- Session & Power Management
 hl.bind("CTRL + ALT + Delete", hl.dsp.exit())
@@ -895,27 +900,76 @@ hl.window_rule({ match = { tag = [==[games]==] }, no_blur = true, immediate = tr
 
 -- Centering & Floating rules
 hl.window_rule({ match = { tag = [==[KooL_Cheat]==] }, center = true, float = true, size = [==[(monitor_w*0.65) (monitor_h*0.9)]==] })
+hl.window_rule({ match = { tag = [==[KooL_Settings]==] }, center = true, float = true })
 hl.window_rule({ match = { tag = [==[KooL-Settings]==] }, center = true, float = true, size = [==[(monitor_w*0.7) (monitor_h*0.7)]==] })
 hl.window_rule({ match = { tag = [==[wallpaper]==] }, center = true, float = true, size = [==[(monitor_w*0.7) (monitor_h*0.7)]==] })
 hl.window_rule({ match = { tag = [==[settings]==] }, center = true, float = true, size = [==[(monitor_w*0.7) (monitor_h*0.7)]==] })
 hl.window_rule({ match = { tag = [==[viewer]==] }, center = true, float = true })
+hl.window_rule({ match = { title = [==[^(ROG Control)$]==] }, center = true })
+hl.window_rule({ match = { title = [==[^(Keybindings)$]==] }, center = true })
+hl.window_rule({ match = { class = [==[^(pavucontrol|org.pulseaudio.pavucontrol|com.saivert.pwvucontrol)$]==] }, center = true })
+hl.window_rule({ match = { class = [==[^([Ff]erdium)$]==] }, center = true, float = true, size = [==[(monitor_w*0.6) (monitor_h*0.7)]==] })
 hl.window_rule({ match = { class = [==[([Zz]oom|onedriver|onedriver-launcher)]==] }, float = true })
 hl.window_rule({ match = { class = [==[(org.gnome.Calculator|qalculate-gtk)]==] }, float = true })
 hl.window_rule({ match = { class = [==[^(mpv|com.github.rafostar.Clapper)$]==] }, float = true })
 hl.window_rule({ match = { title = [==[^(Authentication Required)$]==] }, float = true, center = true })
+hl.window_rule({ match = { title = [==[^(Add Folder to Workspace)$]==] }, float = true, center = true, size = [==[(monitor_w*0.7) (monitor_h*0.6)]==] })
+hl.window_rule({ match = { title = [==[^(Save As)$]==] }, float = true, center = true, size = [==[(monitor_w*0.7) (monitor_h*0.6)]==] })
+hl.window_rule({ match = { initial_title = [==[(Open Files)]==] }, float = true, size = [==[(monitor_w*0.7) (monitor_h*0.6)]==] })
+hl.window_rule({ match = { title = [==[^(SDDM Background)$]==] }, float = true, center = true, size = [==[(monitor_w*0.16) (monitor_h*0.12)]==] })
+hl.window_rule({ match = { class = [==[^(yad)$]==] }, float = true, center = true, size = [==[(monitor_w*0.2) (monitor_h*0.2)]==] })
+hl.window_rule({
+    name = "Whatsapp-zapzap",
+    match = { class = [==[^([Ww]hatsapp-for-linux|ZapZap|com.rtosta.zapzap)$]==] },
+    center = true,
+    size = [==[(monitor_w*0.6) (monitor_h*0.7)]==],
+})
+hl.window_rule({
+    name = "Thunar-Progress-bar",
+    match = { class = [==[^(thunar)$]==], title = [==[^(File Operation Progress)$]==] },
+    float = true,
+    center = true,
+    size = [==[(monitor_w*0.26) (monitor_h*0.18)]==],
+})
+hl.window_rule({
+    name = "Picture-in-Picture",
+    match = { title = [==[^(Picture-in-Picture)$]==] },
+    float = true,
+    move = "72% 7%",
+    opacity = [==[0.95 override 0.75 override]==],
+    pin = true,
+    keep_aspect_ratio = true,
+    size = [==[(monitor_w*0.3) (monitor_h*0.3)]==],
+})
+
+-- JetBrains focus fix & fullscreen idle inhibit (prevents DPMS/lock during fullscreen playback)
+hl.window_rule({ match = { class = [==[^(jetbrains-.+)$]==] }, no_initial_focus = true })
+hl.window_rule({ match = { fullscreen = true }, idle_inhibit = "fullscreen" })
 
 -- Specific App Opacities
 hl.window_rule({ match = { tag = [==[browser]==] }, opacity = [==[0.99 override 0.85 override]==] })
 hl.window_rule({ match = { tag = [==[projects]==] }, opacity = [==[0.92 override 0.82 override]==] })
+hl.window_rule({ match = { tag = [==[im]==] }, opacity = [==[0.94 override 0.86 override]==] })
+hl.window_rule({ match = { tag = [==[file-manager]==] }, opacity = [==[0.90 override 0.80 override]==] })
 hl.window_rule({ match = { tag = [==[terminal]==] }, opacity = [==[0.92 override 0.75 override]==] })
+hl.window_rule({ match = { tag = [==[settings]==] }, opacity = [==[0.85 override 0.75 override]==] })
+hl.window_rule({ match = { tag = [==[viewer]==] }, opacity = [==[0.88 override 0.78 override]==] })
+hl.window_rule({ match = { tag = [==[wallpaper]==] }, opacity = [==[0.90 override 0.75 override]==] })
 
 -- Dropdown terminal rule (prevent initial center-screen flash before slide-down)
 hl.window_rule({ match = { class = [==[^(kitty-dropterm)$]==] }, float = true, no_anim = true })
 
--- Layer rules for Rofi, SwayNC, and Quickshell overview
-hl.layer_rule({ match = { namespace = [==[rofi]==] }, blur = true })
-hl.layer_rule({ match = { namespace = [==[notifications]==] }, blur = true })
-hl.layer_rule({ match = { namespace = [==[quickshell:overview]==] }, blur = true, ignore_alpha = 0.5 })
+-- Layer rules for Waybar, Rofi, SwayNC, and Quickshell overview
+for _, ns in ipairs({
+    "waybar",
+    "rofi",
+    "swaync-control-center",
+    "swaync-notification-window",
+    "notifications",
+    "quickshell:overview",
+}) do
+    hl.layer_rule({ match = { namespace = ns }, blur = true, ignore_alpha = 0.5 })
+end
 
 --------------------------------------------------------------------------------
 -- 9. USER OVERRIDES (nvidia.conf / UserDecorations.conf / userprefs.conf / userprefs.lua)
@@ -1030,6 +1084,7 @@ if nvidia_enabled then
     load_custom_settings(home .. "/.config/hypr/nvidia.conf")
 end
 load_custom_settings(home .. "/.config/hypr/UserConfigs/UserDecorations.conf")
+load_custom_settings(home .. "/.config/hypr/UserConfigs/UserSettings.conf")
 load_custom_settings(home .. "/.config/hypr/userprefs.conf")
 
 local user_lua = home .. "/.config/hypr/userprefs.lua"
