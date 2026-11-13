@@ -26,7 +26,7 @@ DRY_RUN=false
 OUTPUT_JSON=false
 ENV_FILE="/tmp/yusei-hypr/detected.env"
 INJECT_USERPREFS=false
-TARGET_USERPREFS="${TARGET_USERPREFS:-$HOME/.config/hypr/userprefs.conf}"
+TARGET_USERPREFS="${TARGET_USERPREFS:-${XDG_CONFIG_HOME:-$HOME/.config}/hypr/userprefs.conf}"
 
 usage() {
     cat <<EOF
@@ -174,7 +174,7 @@ SYSFS_PCI_DIR="${SYSFS_PCI_DIR:-/sys/bus/pci/devices}"
 LSPCI_OUTPUT="$(lspci 2>/dev/null | grep -iE 'vga|3d|display' || true)"
 if echo "$LSPCI_OUTPUT" | grep -iq "nvidia"; then
     HAS_NVIDIA=true
-    NVIDIA_MODEL="$(echo "$LSPCI_OUTPUT" | grep -i "nvidia" | head -n 1 | sed -E 's/^[0-9a-f:.]+ (VGA compatible controller|3D controller): //' | tr -d '"\n')"
+    NVIDIA_MODEL="$(echo "$LSPCI_OUTPUT" | grep -i "nvidia" | head -n 1 | sed -E 's/^[0-9a-f:.]+ (VGA compatible controller|3D controller|Display controller): //' | tr -d '"\n')"
     if [ -z "$NVIDIA_MODEL" ]; then
         NVIDIA_MODEL="NVIDIA Corporation (Generic)"
     fi

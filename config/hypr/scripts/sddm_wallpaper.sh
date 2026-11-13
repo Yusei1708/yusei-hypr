@@ -2,7 +2,7 @@
 # /* ---- 💫 https://github.com/JaKooLit 💫 ---- */
 # SDDM Wallpaper and Wallust Colors Setter
 
-# for the upcoming changes on the simple_sddm_theme
+# for the upcoming changes on the simple-sddm-2 theme
 
 # variables
 terminal=kitty
@@ -16,7 +16,7 @@ sddm_themes_dir="/usr/share/sddm/themes"
 if [ ! -d "$sddm_themes_dir" ] && [ -d "/run/current-system/sw/share/sddm/themes" ]; then
     sddm_themes_dir="/run/current-system/sw/share/sddm/themes"
 fi
-sddm_simple="$sddm_themes_dir/simple_sddm_2"
+sddm_simple="$sddm_themes_dir/simple-sddm-2"
 
 # Directory for swaync
 iDIR="$HOME/.config/swaync/images"
@@ -36,9 +36,9 @@ fi
 
 # Parse arguments
 mode="effects" # default
-if [[ "$1" == "--normal" ]]; then
+if [[ "${1:-}" == "--normal" ]]; then
     mode="normal"
-elif [[ "$1" == "--effects" ]]; then
+elif [[ "${1:-}" == "--effects" ]]; then
     mode="effects"
 fi
 
@@ -120,7 +120,7 @@ sudo sed -i \"s/UserIconColor=\\\"#.*\\\"/UserIconColor=\\\"$color7\\\"/\" \"$sd
 sudo sed -i \"s/PasswordIconColor=\\\"#.*\\\"/PasswordIconColor=\\\"$color7\\\"/\" \"$sddm_theme_conf\"
 
 # Copy wallpaper to SDDM theme
-# Primary: set Backgrounds/default (no extension) for simple_sddm_2
+# Primary: set Backgrounds/default (no extension) for simple-sddm-2
 sudo cp -f \"$wallpaper_path\" \"$sddm_simple/Backgrounds/default\" || true
 # Fallbacks: if theme ships default.jpg or default.png, update those too
 if [ -e \"$sddm_simple/Backgrounds/default.jpg\" ]; then

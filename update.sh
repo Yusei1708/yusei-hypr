@@ -124,130 +124,40 @@ fi
 echo -e "\n${BLUE}:: [Stage 3/4] Đồng bộ cấu hình yusei-hypr, bin/ và wallpapers...${NC}"
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 
+TMP_PRESERVE=""
+_yusei_update_cleanup() {
+    if [[ -n "${TMP_PRESERVE:-}" && -d "${TMP_PRESERVE:-}" ]]; then
+        rm -rf "$TMP_PRESERVE"
+    fi
+}
+trap _yusei_update_cleanup EXIT INT TERM
+
+CONFIG_SYNC_HELPER="$DIR/scripts/04-install-configs.sh"
+if [[ ! -f "$CONFIG_SYNC_HELPER" ]]; then
+    echo -e "${RED}[ERROR] Không tìm thấy module đồng bộ cấu hình: $CONFIG_SYNC_HELPER${NC}"
+    exit 1
+fi
+# shellcheck disable=SC1090
+YUSEI_CONFIG_SYNC_LIB_ONLY=1 source "$CONFIG_SYNC_HELPER"
+
 if [ "$DRY_RUN" = "true" ]; then
-    echo -e "${YELLOW}[DRY-RUN] Sẽ đồng bộ các thư mục cấu hình vào $CONFIG_HOME (bảo tồn userprefs.conf, UserConfigs, UserScripts)${NC}"
-    echo -e "${YELLOW}[DRY-RUN] Sẽ đồng bộ các tiện ích từ bin/ vào ~/.local/bin${NC}"
-    echo -e "${YELLOW}[DRY-RUN] Sẽ đồng bộ bộ sưu tập hình nền vào ~/Pictures/wallpapers${NC}"
+    echo -e "${YELLOW}[DRY-RUN] Sẽ đồng bộ không phá hủy ${#YUSEI_CONFIG_DIRS[@]} thư mục cấu hình vào $CONFIG_HOME (bảo tồn userprefs.{conf,lua}, UserConfigs, UserScripts, animations.conf, monitors.conf, power.json, state/colors, custom presets)${NC}"
+    echo -e "${YELLOW}[DRY-RUN] Sẽ đồng bộ bin/, lib/, assets/packages/, scripts/, yusei_settings/, uninstall.sh vào ~/.local${NC}"
+    echo -e "${YELLOW}[DRY-RUN] Sẽ đồng bộ bộ sưu tập hình nền vào ~/Pictures/wallpapers (bảo tồn wallpaper.jpg đã có)${NC}"
+    if [[ "$(yusei_detect_nvidia_readonly "$DIR")" = "true" ]]; then
+        echo -e "${YELLOW}[DRY-RUN] Phát hiện GPU NVIDIA: sẽ kích hoạt lại nvidia.conf và kiểm tra userprefs.conf${NC}"
+    fi
 else
-    mkdir -p "$CONFIG_HOME"
-    CONFIG_DIRS=("hypr" "waybar" "rofi" "kitty" "swaync" "wlogout" "fastfetch" "btop" "cava" "swappy" "wallust" "Kvantum" "qt5ct" "qt6ct" "quickshell")
+    yusei_deploy_all_configs "$DIR" "$CONFIG_HOME"
+    yusei_sync_local_runtime "$DIR"
+    yusei_sync_wallpapers "$DIR" "$CONFIG_HOME"
 
-    for dir in "${CONFIG_DIRS[@]}"; do
-        if [[ -d "$DIR/config/$dir" ]]; then
-            if [[ "$dir" == "hypr" && -d "$CONFIG_HOME/hypr" ]]; then
-                TMP_PRESERVE="$(mktemp -d /tmp/yusei-update-preserve-XXXXXX)"
-                HAS_USER_PREFS=false
-                HAS_USER_LUA=false
-                HAS_USER_CONFIGS=false
-                HAS_USER_SCRIPTS=false
-
-                if [[ -f "$CONFIG_HOME/hypr/userprefs.conf" ]]; then
-                    cp -a "$CONFIG_HOME/hypr/userprefs.conf" "$TMP_PRESERVE/userprefs.conf"
-                    HAS_USER_PREFS=true
-                fi
-                if [[ -f "$CONFIG_HOME/hypr/userprefs.lua" ]]; then
-                    cp -a "$CONFIG_HOME/hypr/userprefs.lua" "$TMP_PRESERVE/userprefs.lua"
-                    HAS_USER_LUA=true
-                fi
-                if [[ -d "$CONFIG_HOME/hypr/UserConfigs" ]]; then
-                    cp -a "$CONFIG_HOME/hypr/UserConfigs" "$TMP_PRESERVE/"
-                    HAS_USER_CONFIGS=true
-                fi
-                if [[ -d "$CONFIG_HOME/hypr/UserScripts" ]]; then
-                    cp -a "$CONFIG_HOME/hypr/UserScripts" "$TMP_PRESERVE/"
-                    HAS_USER_SCRIPTS=true
-                fi
-
-                rm -rf "$CONFIG_HOME/hypr"
-                cp -a "$DIR/config/hypr" "$CONFIG_HOME/"
-
-                if [ "$HAS_USER_PREFS" = "true" ]; then
-                    cp -a "$TMP_PRESERVE/userprefs.conf" "$CONFIG_HOME/hypr/userprefs.conf"
-                    echo -e "${GREEN}✓ Đã bảo tồn an toàn cấu hình cá nhân: ~/.config/hypr/userprefs.conf${NC}"
-                elif [[ -f "$DIR/config/hypr/userprefs.conf" && ! -f "$CONFIG_HOME/hypr/userprefs.conf" ]]; then
-                    cp -a "$DIR/config/hypr/userprefs.conf" "$CONFIG_HOME/hypr/userprefs.conf"
-                    echo -e "${GREEN}✓ Đã khởi tạo cấu hình cá nhân mẫu: ~/.config/hypr/userprefs.conf${NC}"
-                fi
-
-                if [ "$HAS_USER_LUA" = "true" ]; then
-                    cp -a "$TMP_PRESERVE/userprefs.lua" "$CONFIG_HOME/hypr/userprefs.lua"
-                    echo -e "${GREEN}✓ Đã bảo tồn an toàn cấu hình cá nhân: ~/.config/hypr/userprefs.lua${NC}"
-                fi
-
-                if [ "$HAS_USER_CONFIGS" = "true" ]; then
-                    mkdir -p "$CONFIG_HOME/hypr/UserConfigs"
-                    cp -a "$TMP_PRESERVE/UserConfigs/." "$CONFIG_HOME/hypr/UserConfigs/" 2>/dev/null || true
-                    echo -e "${GREEN}✓ Đã bảo tồn an toàn tùy biến người dùng tại: ~/.config/hypr/UserConfigs${NC}"
-                fi
-
-                if [ "$HAS_USER_SCRIPTS" = "true" ]; then
-                    mkdir -p "$CONFIG_HOME/hypr/UserScripts"
-                    cp -a "$TMP_PRESERVE/UserScripts/." "$CONFIG_HOME/hypr/UserScripts/" 2>/dev/null || true
-                    echo -e "${GREEN}✓ Đã bảo tồn an toàn script cá nhân tại: ~/.config/hypr/UserScripts${NC}"
-                fi
-
-                rm -rf "$TMP_PRESERVE"
-                echo -e "${GREEN}✓ Đã đồng bộ an toàn: ~/.config/hypr${NC}"
-            else
-                rm -rf "$CONFIG_HOME/$dir"
-                cp -a "$DIR/config/$dir" "$CONFIG_HOME/"
-                echo -e "${GREEN}✓ Đã đồng bộ: ~/.config/$dir${NC}"
-            fi
+    if [[ "$(yusei_detect_nvidia_readonly "$DIR")" = "true" ]]; then
+        echo -e "${YELLOW}:: Phát hiện GPU NVIDIA: đang đồng bộ lại cấu hình NVIDIA...${NC}"
+        yusei_enable_hypr_nvidia_conf "$CONFIG_HOME"
+        if [[ -x "$DIR/scripts/hardware-detect.sh" ]]; then
+            "$DIR/scripts/hardware-detect.sh" --inject-userprefs --target-userprefs="$CONFIG_HOME/hypr/userprefs.conf" || true
         fi
-    done
-
-    # Đảm bảo userprefs.conf luôn tồn tại
-    if [[ ! -f "$CONFIG_HOME/hypr/userprefs.conf" && -f "$DIR/config/hypr/userprefs.conf" ]]; then
-        cp -a "$DIR/config/hypr/userprefs.conf" "$CONFIG_HOME/hypr/userprefs.conf"
-    fi
-
-    # Cấp quyền thực thi cho các script
-    if [[ -d "$CONFIG_HOME/hypr/scripts" ]]; then
-        find "$CONFIG_HOME/hypr/scripts" -type f -name "*.sh" -exec chmod +x {} + 2>/dev/null || true
-    fi
-    if [[ -d "$CONFIG_HOME/hypr/UserScripts" ]]; then
-        find "$CONFIG_HOME/hypr/UserScripts" -type f \( -name "*.sh" -o -name "*.py" \) -exec chmod +x {} + 2>/dev/null || true
-    fi
-    if [[ -f "$CONFIG_HOME/hypr/initial-boot.sh" ]]; then
-        chmod +x "$CONFIG_HOME/hypr/initial-boot.sh" 2>/dev/null || true
-    fi
-
-    # Đồng bộ các công cụ bin/, lib/ và runtime yusei_settings vào ~/.local
-    if [[ -d "$DIR/lib" ]]; then
-        mkdir -p "$HOME/.local/lib"
-        cp -a "$DIR/lib"/* "$HOME/.local/lib/" 2>/dev/null || true
-        if [[ -f "$DIR/lib/waybar-hyprland-compat.c" ]] && command -v gcc >/dev/null 2>&1; then
-            gcc -shared -fPIC -O2 "$DIR/lib/waybar-hyprland-compat.c" -o "$HOME/.local/lib/libwaybar-hyprland.so" -ldl 2>/dev/null || true
-        fi
-    fi
-    if [[ -d "$DIR/bin" ]]; then
-        mkdir -p "$HOME/.local/bin" "$HOME/.local/share/yusei-hypr"
-        cp -a "$DIR/bin"/* "$HOME/.local/bin/" 2>/dev/null || true
-        chmod +x "$HOME/.local/bin"/* 2>/dev/null || true
-        chmod +x "$DIR/bin"/* 2>/dev/null || true
-        if [[ -d "$DIR/yusei_settings" ]]; then
-            rm -rf "$HOME/.local/share/yusei-hypr/yusei_settings"
-            cp -a "$DIR/yusei_settings" "$HOME/.local/share/yusei-hypr/" 2>/dev/null || true
-        fi
-        if [[ -d "$DIR/scripts" ]]; then
-            rm -rf "$HOME/.local/share/yusei-hypr/scripts"
-            cp -a "$DIR/scripts" "$HOME/.local/share/yusei-hypr/" 2>/dev/null || true
-            chmod +x "$HOME/.local/share/yusei-hypr/scripts"/*.sh 2>/dev/null || true
-        fi
-        if [[ -f "$DIR/config/yusei-settings.desktop" ]]; then
-            mkdir -p "$HOME/.local/share/applications"
-            cp -f "$DIR/config/yusei-settings.desktop" "$HOME/.local/share/applications/"
-            update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
-        fi
-        echo -e "${GREEN}✓ Đã đồng bộ các công cụ bin/ và yusei_settings vào ~/.local/bin & ~/.local/share/yusei-hypr${NC}"
-    fi
-
-    # Đồng bộ hình nền
-    PICTURES_DIR="$(xdg-user-dir PICTURES 2>/dev/null || echo "$HOME/Pictures")"
-    if [[ -d "$DIR/assets/wallpapers" ]]; then
-        mkdir -p "$PICTURES_DIR/wallpapers"
-        cp -n "$DIR/assets/wallpapers"/* "$PICTURES_DIR/wallpapers/" 2>/dev/null || true
-        echo -e "${GREEN}✓ Đã đồng bộ bộ sưu tập hình nền vào $PICTURES_DIR/wallpapers${NC}"
     fi
 fi
 

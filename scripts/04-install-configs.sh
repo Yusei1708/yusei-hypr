@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# yusei-hypr: Config Deployer Module
+# yusei-hypr: Config Deployer Module (Non-Destructive Overlay & Runtime Sync)
 # ==============================================================================
 
 set -euo pipefail
@@ -12,7 +12,302 @@ BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${BLUE}:: [Configs] Đang cài đặt các file cấu hình yusei-hypr vào ~/.config...${NC}"
+YUSEI_CONFIG_DIRS=(
+    "hypr" "waybar" "rofi" "kitty" "swaync" "wlogout"
+    "fastfetch" "btop" "cava" "swappy" "wallust"
+    "Kvantum" "qt5ct" "qt6ct" "quickshell"
+)
+
+TMP_PRESERVE=""
+_yusei_cleanup_tmp_preserve() {
+    if [[ -n "${TMP_PRESERVE:-}" && -d "${TMP_PRESERVE:-}" ]]; then
+        rm -rf "$TMP_PRESERVE"
+    fi
+}
+
+_yusei_is_preserved_rel() {
+    local dir_name="$1"
+    local rel="$2"
+
+    case "$dir_name" in
+        hypr)
+            case "$rel" in
+                userprefs.conf|userprefs.lua|animations.conf|monitors.conf|power.json|\
+                .power-optimizer.state|.current_wallpaper|.current_theme|wallpaper.jpg|\
+                colors.conf|wallust/wallust-hyprland.conf|\
+                UserConfigs/*|UserScripts/*)
+                    return 0
+                    ;;
+            esac
+            ;;
+        waybar)
+            case "$rel" in
+                config|config.jsonc|style.css|UserModules|colors.css|wallust/colors-waybar.css)
+                    return 0
+                    ;;
+            esac
+            ;;
+        rofi)
+            case "$rel" in
+                config.rasi|.current_wallpaper|colors.rasi|wallust/colors-rofi.rasi|online_music.list)
+                    return 0
+                    ;;
+            esac
+            ;;
+        kitty)
+            case "$rel" in
+                kitty.conf|current-theme.conf|theme.conf|kitty-themes/01-Wallust.conf)
+                    return 0
+                    ;;
+            esac
+            ;;
+        quickshell)
+            case "$rel" in
+                config.json|qml_color.json)
+                    return 0
+                    ;;
+            esac
+            ;;
+        swaync)
+            [[ "$rel" == "colors.css" ]] && return 0
+            ;;
+        cava)
+            [[ "$rel" == "config" ]] && return 0
+            ;;
+        wallust)
+            [[ "$rel" == "wallust.toml" ]] && return 0
+            ;;
+    esac
+    return 1
+}
+
+# Đồng bộ không phá hủy một thư mục cấu hình từ repo sang CONFIG_HOME/$dir
+yusei_overlay_config_dir() {
+    local src_dir="$1"
+    local dst_dir="$2"
+    local dir_name="$3"
+
+    if [[ ! -d "$src_dir" ]]; then
+        return 0
+    fi
+
+    # Nếu chưa từng có cấu hình tại đích -> sao chép trọn vẹn lần đầu
+    if [[ ! -e "$dst_dir" && ! -L "$dst_dir" ]]; then
+        cp -a "$src_dir" "$dst_dir"
+        return 0
+    fi
+
+    mkdir -p "$dst_dir"
+
+    local subdir src_item rel dst_item
+    while IFS= read -r -d '' subdir; do
+        rel="${subdir#"$src_dir/"}"
+        mkdir -p "$dst_dir/$rel"
+    done < <(find "$src_dir" -mindepth 1 -type d -print0)
+
+    while IFS= read -r -d '' src_item; do
+        rel="${src_item#"$src_dir/"}"
+        dst_item="$dst_dir/$rel"
+
+        if _yusei_is_preserved_rel "$dir_name" "$rel"; then
+            if [[ -e "$dst_item" || -L "$dst_item" ]]; then
+                continue
+            fi
+        fi
+
+        mkdir -p "$(dirname "$dst_item")"
+        rm -f "$dst_item"
+        cp -a "$src_item" "$dst_item"
+    done < <(find "$src_dir" -mindepth 1 \( -type f -o -type l \) -print0)
+}
+
+yusei_deploy_all_configs() {
+    local repo_root="$1"
+    local config_home="$2"
+
+    mkdir -p "$config_home"
+
+    local had_hypr_before=false
+    if [[ -d "$config_home/hypr" ]]; then
+        had_hypr_before=true
+    fi
+
+    local dir
+    for dir in "${YUSEI_CONFIG_DIRS[@]}"; do
+        if [[ -d "$repo_root/config/$dir" ]]; then
+            local dst_dir="$config_home/$dir"
+            yusei_overlay_config_dir "$repo_root/config/$dir" "$dst_dir" "$dir"
+
+            if [[ "$dir" == "hypr" && "$had_hypr_before" = "true" ]]; then
+                # Đảm bảo animations.conf giữ/có fadeDpms, 0 để tránh chớp màn hình khi wake
+                if [[ -f "$dst_dir/animations.conf" ]] && ! grep -Eq 'fadeDpms' "$dst_dir/animations.conf"; then
+                    {
+                        echo ""
+                        echo "# Prevent flicker on DPMS wake (preserved by yusei-hypr)"
+                        echo "animation = fadeDpms, 0"
+                    } >> "$dst_dir/animations.conf"
+                fi
+                echo -e "${GREEN}✓ Đã đồng bộ an toàn (non-destructive, giữ cấu hình/trạng thái người dùng): $dst_dir${NC}"
+            else
+                echo -e "${GREEN}✓ Đã triển khai: $dst_dir${NC}"
+            fi
+        fi
+    done
+
+    # Đảm bảo userprefs.conf luôn tồn tại sau khi triển khai
+    if [[ ! -f "$config_home/hypr/userprefs.conf" && -f "$repo_root/config/hypr/userprefs.conf" ]]; then
+        cp -a "$repo_root/config/hypr/userprefs.conf" "$config_home/hypr/userprefs.conf"
+        echo -e "${GREEN}✓ Đã khởi tạo template cấu hình: $config_home/hypr/userprefs.conf${NC}"
+    fi
+
+    # Đảm bảo phân quyền thực thi cho toàn bộ script trong config_home
+    if [[ -d "$config_home/hypr/scripts" ]]; then
+        find "$config_home/hypr/scripts" -type f -name "*.sh" -exec chmod +x {} + 2>/dev/null || true
+    fi
+    if [[ -d "$config_home/hypr/UserScripts" ]]; then
+        find "$config_home/hypr/UserScripts" -type f \( -name "*.sh" -o -name "*.py" \) -exec chmod +x {} + 2>/dev/null || true
+    fi
+    if [[ -f "$config_home/hypr/initial-boot.sh" ]]; then
+        chmod +x "$config_home/hypr/initial-boot.sh" 2>/dev/null || true
+    fi
+    if [[ -f "$config_home/hypr/scripts/power-optimizer.sh" ]]; then
+        chmod +x "$config_home/hypr/scripts/power-optimizer.sh" 2>/dev/null || true
+    fi
+}
+
+yusei_enable_hypr_nvidia_conf() {
+    local config_home="$1"
+    if [[ -f "$config_home/hypr/hyprland.conf" ]]; then
+        # Khớp chính xác cả "# source = ./nvidia.conf" và "# source = ~/.config/hypr/nvidia.conf"
+        sed -i -E 's@#\s*source\s*=\s*(\./|~/\.config/hypr/)nvidia\.conf@source = ./nvidia.conf@g' "$config_home/hypr/hyprland.conf"
+        echo -e "${GREEN}✓ Đã kích hoạt cấu hình tối ưu card đồ họa NVIDIA trong hyprland.conf!${NC}"
+    fi
+}
+
+yusei_detect_nvidia_readonly() {
+    local repo_root="$1"
+    local has_nvidia="false"
+
+    if [[ -f /tmp/yusei-hypr/detected.env ]]; then
+        # shellcheck disable=SC1091
+        . /tmp/yusei-hypr/detected.env
+        has_nvidia="${HAS_NVIDIA:-false}"
+    elif [[ -x "$repo_root/scripts/hardware-detect.sh" ]] && command -v python3 &>/dev/null; then
+        has_nvidia="$("$repo_root/scripts/hardware-detect.sh" --json --dry-run 2>/dev/null | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    print("true" if d.get("has_nvidia") else "false")
+except Exception:
+    print("false")
+' 2>/dev/null || echo "false")"
+    fi
+
+    echo "$has_nvidia"
+}
+
+yusei_sync_wallpapers() {
+    local repo_root="$1"
+    local config_home="$2"
+    local pictures_dir
+    pictures_dir="$(xdg-user-dir PICTURES 2>/dev/null || echo "$HOME/Pictures")"
+
+    mkdir -p "$pictures_dir/wallpapers"
+    if [[ -d "$repo_root/assets/wallpapers" ]]; then
+        echo -e "${BLUE}:: Đang đồng bộ bộ sưu tập hình nền vào $pictures_dir/wallpapers...${NC}"
+        cp -n "$repo_root/assets/wallpapers"/* "$pictures_dir/wallpapers/" 2>/dev/null || true
+        local wp_count
+        wp_count="$(find "$repo_root/assets/wallpapers" -maxdepth 1 -type f 2>/dev/null | wc -l)"
+        echo -e "${GREEN}✓ Đã cập nhật toàn bộ ${wp_count} hình nền nghệ thuật vào $pictures_dir/wallpapers${NC}"
+    fi
+
+    # Chỉ thiết lập hình nền mặc định nếu chưa có wallpaper.jpg trước đó
+    if [[ ! -e "$config_home/hypr/wallpaper.jpg" && ! -L "$config_home/hypr/wallpaper.jpg" ]]; then
+        local default_wall="$pictures_dir/wallpapers/16-balcony-twilight.png"
+        if [[ ! -f "$default_wall" && -f "$repo_root/assets/wallpapers/default.jpg" ]]; then
+            default_wall="$repo_root/assets/wallpapers/default.jpg"
+        fi
+        if [[ -f "$default_wall" && -d "$config_home/hypr" ]]; then
+            cp -f "$default_wall" "$config_home/hypr/wallpaper.jpg"
+        fi
+    fi
+}
+
+yusei_sync_local_runtime() {
+    local repo_root="$1"
+    local data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+    local local_share="$data_home/yusei-hypr"
+
+    if [[ -d "$repo_root/lib" ]]; then
+        mkdir -p "$HOME/.local/lib"
+        cp -a "$repo_root/lib"/* "$HOME/.local/lib/" 2>/dev/null || true
+        if [[ -f "$repo_root/lib/waybar-hyprland-compat.c" ]] && command -v gcc >/dev/null 2>&1; then
+            gcc -shared -fPIC -O2 "$repo_root/lib/waybar-hyprland-compat.c" -o "$HOME/.local/lib/libwaybar-hyprland.so" -ldl 2>/dev/null || true
+        fi
+    fi
+
+    mkdir -p "$HOME/.local/bin" "$local_share/bin" "$local_share/packages"
+
+    # Không bao giờ chmod trực tiếp lên $repo_root/bin/* để giữ sạch git working tree
+    if [[ -d "$repo_root/bin" ]]; then
+        cp -a "$repo_root/bin"/* "$HOME/.local/bin/" 2>/dev/null || true
+        cp -a "$repo_root/bin"/* "$local_share/bin/" 2>/dev/null || true
+        chmod +x "$HOME/.local/bin"/* "$local_share/bin"/* 2>/dev/null || true
+    fi
+
+    if [[ -d "$repo_root/assets/packages" ]]; then
+        cp -a "$repo_root/assets/packages"/* "$local_share/packages/" 2>/dev/null || true
+    fi
+
+    if [[ -d "$repo_root/yusei_settings" ]]; then
+        rm -rf "$local_share/yusei_settings"
+        cp -a "$repo_root/yusei_settings" "$local_share/" 2>/dev/null || true
+    fi
+
+    if [[ -d "$repo_root/scripts" ]]; then
+        rm -rf "$local_share/scripts"
+        cp -a "$repo_root/scripts" "$local_share/" 2>/dev/null || true
+        chmod +x "$local_share/scripts"/*.sh 2>/dev/null || true
+    fi
+
+    if [[ -f "$repo_root/uninstall.sh" ]]; then
+        cp -f "$repo_root/uninstall.sh" "$local_share/uninstall.sh" 2>/dev/null || true
+        chmod +x "$local_share/uninstall.sh" 2>/dev/null || true
+    fi
+
+    if [[ -f "$repo_root/config/yusei-settings.desktop" ]]; then
+        mkdir -p "$data_home/applications"
+        cp -f "$repo_root/config/yusei-settings.desktop" "$data_home/applications/"
+        update-desktop-database "$data_home/applications" 2>/dev/null || true
+    fi
+
+    echo -e "${GREEN}✓ Đã đồng bộ swww (0.9.5), bin/, scripts/, yusei_settings & uninstall.sh vào ~/.local${NC}"
+}
+
+if [[ "${YUSEI_CONFIG_SYNC_LIB_ONLY:-0}" = "1" ]]; then
+    return 0 2>/dev/null || exit 0
+fi
+
+trap _yusei_cleanup_tmp_preserve EXIT INT TERM
+
+DRY_RUN=false
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run) DRY_RUN=true ;;
+    esac
+done
+
+CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+
+if [[ "$DRY_RUN" = "true" ]]; then
+    echo -e "${YELLOW}:: [DRY-RUN] Mô phỏng triển khai cấu hình yusei-hypr vào $CONFIG_HOME và ~/.local (không ghi đĩa)...${NC}"
+    echo -e "${YELLOW}   • Sẽ đồng bộ không phá hủy ${#YUSEI_CONFIG_DIRS[@]} thư mục cấu hình vào $CONFIG_HOME${NC}"
+    echo -e "${YELLOW}   • Sẽ bảo tồn userprefs.{conf,lua}, UserConfigs/, UserScripts/, animations.conf (fadeDpms, 0), monitors.conf, power.json, state/colors, presets cá nhân${NC}"
+    echo -e "${YELLOW}   • Sẽ đồng bộ bin/, lib/, scripts/, assets/packages/, yusei_settings/, uninstall.sh vào ~/.local${NC}"
+    exit 0
+fi
+
+echo -e "${BLUE}:: [Configs] Đang cài đặt các file cấu hình yusei-hypr vào $CONFIG_HOME...${NC}"
 
 # Nạp thông tin phần cứng
 HAS_NVIDIA="false"
@@ -22,174 +317,29 @@ if [ -f /tmp/yusei-hypr/detected.env ]; then
     . /tmp/yusei-hypr/detected.env
 fi
 
-# 1. Tạo thư mục .config nếu chưa có
-mkdir -p "$HOME/.config"
-
-# 2. Sao chép các thư mục cấu hình và bảo vệ dữ liệu người dùng
-CONFIG_DIRS=("hypr" "waybar" "rofi" "kitty" "swaync" "wlogout" "fastfetch" "btop" "cava" "swappy" "wallust" "Kvantum" "qt5ct" "qt6ct" "quickshell")
-
-for dir in "${CONFIG_DIRS[@]}"; do
-    if [[ -d "$SCRIPT_DIR/config/$dir" ]]; then
-        if [[ "$dir" == "hypr" && -d "$HOME/.config/hypr" ]]; then
-            # Bảo vệ cấu hình cá nhân của người dùng (userprefs.conf, userprefs.lua, UserConfigs và UserScripts)
-            TMP_PRESERVE="/tmp/yusei-hypr/preserve_user_$$"
-            mkdir -p "$TMP_PRESERVE"
-            HAS_USER_PREFS=false
-            HAS_USER_LUA=false
-            HAS_USER_CONFIGS=false
-            HAS_USER_SCRIPTS=false
-
-            if [[ -f "$HOME/.config/hypr/userprefs.conf" ]]; then
-                cp -a "$HOME/.config/hypr/userprefs.conf" "$TMP_PRESERVE/userprefs.conf"
-                HAS_USER_PREFS=true
-            fi
-
-            if [[ -f "$HOME/.config/hypr/userprefs.lua" ]]; then
-                cp -a "$HOME/.config/hypr/userprefs.lua" "$TMP_PRESERVE/userprefs.lua"
-                HAS_USER_LUA=true
-            fi
-
-            if [[ -d "$HOME/.config/hypr/UserConfigs" ]]; then
-                cp -a "$HOME/.config/hypr/UserConfigs" "$TMP_PRESERVE/"
-                HAS_USER_CONFIGS=true
-            fi
-
-            if [[ -d "$HOME/.config/hypr/UserScripts" ]]; then
-                cp -a "$HOME/.config/hypr/UserScripts" "$TMP_PRESERVE/"
-                HAS_USER_SCRIPTS=true
-            fi
-
-            # Thay thế thư mục hypr
-            rm -rf "$HOME/.config/hypr"
-            cp -a "$SCRIPT_DIR/config/hypr" "$HOME/.config/"
-
-            # Khôi phục các tùy biến cá nhân của người dùng
-            if [ "$HAS_USER_PREFS" = "true" ]; then
-                cp -a "$TMP_PRESERVE/userprefs.conf" "$HOME/.config/hypr/userprefs.conf"
-                echo -e "${GREEN}✓ Đã bảo tồn an toàn cấu hình cá nhân tại: ~/.config/hypr/userprefs.conf${NC}"
-            else
-                if [[ ! -f "$HOME/.config/hypr/userprefs.conf" && -f "$SCRIPT_DIR/config/hypr/userprefs.conf" ]]; then
-                    cp -a "$SCRIPT_DIR/config/hypr/userprefs.conf" "$HOME/.config/hypr/userprefs.conf"
-                    echo -e "${GREEN}✓ Đã khởi tạo cấu hình cá nhân mẫu: ~/.config/hypr/userprefs.conf${NC}"
-                fi
-            fi
-
-            if [ "$HAS_USER_LUA" = "true" ]; then
-                cp -a "$TMP_PRESERVE/userprefs.lua" "$HOME/.config/hypr/userprefs.lua"
-                echo -e "${GREEN}✓ Đã bảo tồn an toàn cấu hình cá nhân tại: ~/.config/hypr/userprefs.lua${NC}"
-            fi
-
-            if [ "$HAS_USER_CONFIGS" = "true" ]; then
-                cp -a "$TMP_PRESERVE/UserConfigs"/* "$HOME/.config/hypr/UserConfigs/" 2>/dev/null || true
-                echo -e "${GREEN}✓ Đã bảo tồn an toàn tùy biến của người dùng tại: ~/.config/hypr/UserConfigs${NC}"
-            fi
-
-            if [ "$HAS_USER_SCRIPTS" = "true" ]; then
-                cp -a "$TMP_PRESERVE/UserScripts"/* "$HOME/.config/hypr/UserScripts/" 2>/dev/null || true
-                echo -e "${GREEN}✓ Đã bảo tồn an toàn script cá nhân tại: ~/.config/hypr/UserScripts${NC}"
-            fi
-
-            rm -rf "$TMP_PRESERVE"
-            echo -e "${GREEN}✓ Đã triển khai an toàn (non-destructive): ~/.config/hypr${NC}"
-        else
-            rm -rf "$HOME/.config/$dir"
-            cp -a "$SCRIPT_DIR/config/$dir" "$HOME/.config/"
-            echo -e "${GREEN}✓ Đã triển khai: ~/.config/$dir${NC}"
-        fi
-    fi
-done
-
-# Đảm bảo ~/.config/hypr/userprefs.conf luôn tồn tại sau khi cài đặt
-if [[ ! -f "$HOME/.config/hypr/userprefs.conf" && -f "$SCRIPT_DIR/config/hypr/userprefs.conf" ]]; then
-    cp -a "$SCRIPT_DIR/config/hypr/userprefs.conf" "$HOME/.config/hypr/userprefs.conf"
-    echo -e "${GREEN}✓ Đã khởi tạo template cấu hình: ~/.config/hypr/userprefs.conf${NC}"
-fi
-
-# Đảm bảo phân quyền thực thi cho toàn bộ script
-if [[ -d "$HOME/.config/hypr/scripts" ]]; then
-    find "$HOME/.config/hypr/scripts" -type f -name "*.sh" -exec chmod +x {} + 2>/dev/null || true
-fi
-if [[ -d "$HOME/.config/hypr/UserScripts" ]]; then
-    find "$HOME/.config/hypr/UserScripts" -type f \( -name "*.sh" -o -name "*.py" \) -exec chmod +x {} + 2>/dev/null || true
-fi
-if [[ -f "$HOME/.config/hypr/initial-boot.sh" ]]; then
-    chmod +x "$HOME/.config/hypr/initial-boot.sh" 2>/dev/null || true
-fi
+# 1-2. Đồng bộ an toàn toàn bộ thư mục cấu hình vào CONFIG_HOME
+yusei_deploy_all_configs "$SCRIPT_DIR" "$CONFIG_HOME"
 
 # 3. Kích hoạt NVIDIA nếu được phát hiện
 if [ "${HAS_NVIDIA:-false}" = "true" ]; then
     echo -e "${YELLOW}:: Đang kích hoạt nạp nvidia.conf trong hyprland.conf...${NC}"
-    if [[ -f "$HOME/.config/hypr/hyprland.conf" ]]; then
-        # Khớp chính xác cả "# source = ./nvidia.conf" và "# source = ~/.config/hypr/nvidia.conf"
-        sed -i -E 's@#\s*source\s*=\s*(\./|~/\.config/hypr/)nvidia\.conf@source = ./nvidia.conf@g' "$HOME/.config/hypr/hyprland.conf"
-        echo -e "${GREEN}✓ Đã kích hoạt cấu hình tối ưu card đồ họa NVIDIA trong hyprland.conf!${NC}"
-    fi
+    yusei_enable_hypr_nvidia_conf "$CONFIG_HOME"
 fi
 
 # 3b. Cấu hình tự động và quản lý nguồn điện cho Laptop
 if [ "${IS_LAPTOP:-false}" = "true" ] || compgen -G "/sys/class/power_supply/BAT*" >/dev/null 2>&1; then
     echo -e "${BLUE}:: [Laptop] Thiết bị Laptop được phát hiện. Đảm bảo cấu hình quản lý nguồn điện (power-profiles-daemon, brightnessctl, acpi)...${NC}"
-    if [[ -f "$HOME/.config/hypr/scripts/power-optimizer.sh" ]]; then
-        chmod +x "$HOME/.config/hypr/scripts/power-optimizer.sh" 2>/dev/null || true
-    fi
     echo -e "${GREEN}✓ Đã cấu hình tối ưu pin và tần số quét tự động cho Laptop!${NC}"
 fi
 
-# 4. Sao chép bộ sưu tập hình nền vào ~/Pictures/wallpapers
-PICTURES_DIR="$(xdg-user-dir PICTURES 2>/dev/null || echo "$HOME/Pictures")"
-mkdir -p "$PICTURES_DIR/wallpapers"
-if [[ -d "$SCRIPT_DIR/assets/wallpapers" ]]; then
-    echo -e "${BLUE}:: Đang đồng bộ bộ sưu tập hình nền vào $PICTURES_DIR/wallpapers...${NC}"
-    cp -n "$SCRIPT_DIR/assets/wallpapers"/* "$PICTURES_DIR/wallpapers/" 2>/dev/null || true
-    WP_COUNT="$(find "$SCRIPT_DIR/assets/wallpapers" -maxdepth 1 -type f 2>/dev/null | wc -l)"
-    echo -e "${GREEN}✓ Đã cập nhật toàn bộ ${WP_COUNT} hình nền nghệ thuật vào $PICTURES_DIR/wallpapers${NC}"
-fi
+# 4. Sao chép bộ sưu tập hình nền vào ~/Pictures/wallpapers (bảo tồn wallpaper.jpg đã có)
+yusei_sync_wallpapers "$SCRIPT_DIR" "$CONFIG_HOME"
 
-# Thiết lập hình nền mặc định
-DEFAULT_WALL="$PICTURES_DIR/wallpapers/16-balcony-twilight.png"
-if [[ ! -f "$DEFAULT_WALL" && -f "$SCRIPT_DIR/assets/wallpapers/default.jpg" ]]; then
-    DEFAULT_WALL="$SCRIPT_DIR/assets/wallpapers/default.jpg"
-fi
-if [[ -f "$DEFAULT_WALL" ]]; then
-    cp -f "$DEFAULT_WALL" "$HOME/.config/hypr/wallpaper.jpg"
-fi
-
-# 5. Đồng bộ các công cụ bin/, lib/ và runtime yusei_settings vào ~/.local
-if [[ -d "$SCRIPT_DIR/lib" ]]; then
-    mkdir -p "$HOME/.local/lib"
-    cp -a "$SCRIPT_DIR/lib"/* "$HOME/.local/lib/" 2>/dev/null || true
-    if [[ -f "$SCRIPT_DIR/lib/waybar-hyprland-compat.c" ]] && command -v gcc >/dev/null 2>&1; then
-        gcc -shared -fPIC -O2 "$SCRIPT_DIR/lib/waybar-hyprland-compat.c" -o "$HOME/.local/lib/libwaybar-hyprland.so" -ldl 2>/dev/null || true
-    fi
-fi
-if [[ -d "$SCRIPT_DIR/bin" ]]; then
-    mkdir -p "$HOME/.local/bin" "$HOME/.local/share/yusei-hypr/bin" "$HOME/.local/share/yusei-hypr/packages"
-    cp -a "$SCRIPT_DIR/bin"/* "$HOME/.local/bin/" 2>/dev/null || true
-    cp -a "$SCRIPT_DIR/bin"/* "$HOME/.local/share/yusei-hypr/bin/" 2>/dev/null || true
-    chmod +x "$HOME/.local/bin"/* "$HOME/.local/share/yusei-hypr/bin"/* 2>/dev/null || true
-    if [[ -d "$SCRIPT_DIR/assets/packages" ]]; then
-        cp -a "$SCRIPT_DIR/assets/packages"/* "$HOME/.local/share/yusei-hypr/packages/" 2>/dev/null || true
-    fi
-    echo -e "${GREEN}✓ Đã cài đặt cố định swww & swww-daemon (0.9.5) đi kèm yusei-hypr vào ~/.local/bin${NC}"
-    if [[ -d "$SCRIPT_DIR/yusei_settings" ]]; then
-        rm -rf "$HOME/.local/share/yusei-hypr/yusei_settings"
-        cp -a "$SCRIPT_DIR/yusei_settings" "$HOME/.local/share/yusei-hypr/" 2>/dev/null || true
-    fi
-    if [[ -d "$SCRIPT_DIR/scripts" ]]; then
-        rm -rf "$HOME/.local/share/yusei-hypr/scripts"
-        cp -a "$SCRIPT_DIR/scripts" "$HOME/.local/share/yusei-hypr/" 2>/dev/null || true
-        chmod +x "$HOME/.local/share/yusei-hypr/scripts"/*.sh 2>/dev/null || true
-    fi
-    if [[ -f "$SCRIPT_DIR/config/yusei-settings.desktop" ]]; then
-        mkdir -p "$HOME/.local/share/applications"
-        cp -f "$SCRIPT_DIR/config/yusei-settings.desktop" "$HOME/.local/share/applications/"
-        update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
-    fi
-    echo -e "${GREEN}✓ Đã cài đặt các công cụ CLI (yusei-settings, power-optimizer) vào ~/.local/bin${NC}"
-fi
+# 5. Đồng bộ các công cụ bin/, lib/, scripts/, uninstall.sh và runtime yusei_settings vào ~/.local
+yusei_sync_local_runtime "$SCRIPT_DIR"
 
 # 6. Cấu hình Pokemon Fastfetch cho Shell Terminal (Zsh & Bash)
-POKEMON_BANNER='pokemon-colorscripts --no-title -s -r | fastfetch -c $HOME/.config/fastfetch/config-pokemon.jsonc --logo-type file-raw --logo-height 10 --logo-width 5 --logo -'
+POKEMON_BANNER='pokemon-colorscripts --no-title -s -r | fastfetch -c ${XDG_CONFIG_HOME:-$HOME/.config}/fastfetch/config-pokemon.jsonc --logo-type file-raw --logo-height 10 --logo-width 5 --logo -'
 for rc in "$HOME/.zshrc" "$HOME/.bashrc"; do
     if [[ -f "$rc" ]]; then
         if ! grep -q "config-pokemon.jsonc" "$rc"; then

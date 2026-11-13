@@ -2,16 +2,26 @@
 # ==============================================================================
 # yusei-hypr: Safe Uninstaller & System Restoration Wrapper
 # ==============================================================================
-# Backwards-compatible shim delegating to root uninstall.sh
+# Backwards-compatible shim delegating to root uninstall.sh.
+# Works both from repo (<repo>/scripts/uninstall.sh) and installed location
+# (~/.local/share/yusei-hypr/scripts/uninstall.sh).
 # ==============================================================================
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 
-if [[ -f "$SCRIPT_DIR/uninstall.sh" ]]; then
-    exec "$SCRIPT_DIR/uninstall.sh" "$@"
-else
-    echo "Error: Cannot find root uninstall.sh at $SCRIPT_DIR/uninstall.sh" >&2
-    exit 1
-fi
+for candidate in "$ROOT_DIR/uninstall.sh" "$DATA_HOME/yusei-hypr/uninstall.sh"; do
+    if [[ -f "$candidate" ]]; then
+        if [[ -x "$candidate" ]]; then
+            exec "$candidate" "$@"
+        else
+            exec bash "$candidate" "$@"
+        fi
+    fi
+done
+
+echo "Error: Cannot find root uninstall.sh at $ROOT_DIR/uninstall.sh or $DATA_HOME/yusei-hypr/uninstall.sh" >&2
+exit 1

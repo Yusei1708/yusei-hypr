@@ -281,6 +281,7 @@ is_terminal_capable() {
 run_post_triggers() {
     local trigger="$1"
     local dry_run="$2"
+    local pkg_install_ok="${3:-true}"
 
     case "$trigger" in
         sddm)
@@ -290,16 +291,33 @@ run_post_triggers() {
                 theme_name="Sugar-Candy"
             fi
             if [ "$dry_run" = "true" ]; then
-                echo -e "${YELLOW}[DRY-RUN] Sẽ tạo file cấu hình /etc/sddm.conf.d/10-theme.conf với nội dung:${NC}"
-                echo -e "         [Theme]\n         Current=$theme_name"
+                echo -e "${YELLOW}[DRY-RUN] Sẽ tạo file cấu hình /etc/sddm.conf.d/10-theme.conf (nếu sddm-sugar-candy-git cài đặt thành công) với nội dung:${NC}"
+                echo -e "         [Theme]\n         Current=$theme_name\n\n         [General]\n         InputMethod=qtvirtualkeyboard"
                 echo -e "${YELLOW}[DRY-RUN] Sẽ kích hoạt dịch vụ: sudo systemctl enable --force sddm.service${NC}"
             else
+                if [ "$pkg_install_ok" != "true" ] || ! pacman -Q sddm &>/dev/null || ! pacman -Q sddm-sugar-candy-git &>/dev/null; then
+                    echo -e "${YELLOW}⚠️ Bỏ qua SDDM Sugar Candy post-trigger: gói sddm-sugar-candy-git chưa được cài đặt thành công (giữ nguyên /etc/sddm.conf.d/10-theme.conf hiện có).${NC}"
+                    return 0
+                fi
+
+                local input_method="qtvirtualkeyboard"
+                if [ -f /etc/sddm.conf.d/10-theme.conf ]; then
+                    local existing_im
+                    existing_im=$(grep -E '^[[:space:]]*InputMethod=' /etc/sddm.conf.d/10-theme.conf 2>/dev/null | tail -n 1 | cut -d'=' -f2- | tr -d '[:space:]' || true)
+                    if [ -n "$existing_im" ]; then
+                        input_method="$existing_im"
+                    fi
+                fi
+
                 sudo mkdir -p /etc/sddm.conf.d
                 cat << EOF | sudo tee /etc/sddm.conf.d/10-theme.conf > /dev/null
 [Theme]
 Current=$theme_name
+
+[General]
+InputMethod=$input_method
 EOF
-                echo -e "${GREEN}✓ Đã ghi cấu hình theme vào /etc/sddm.conf.d/10-theme.conf${NC}"
+                echo -e "${GREEN}✓ Đã ghi cấu hình theme ($theme_name, InputMethod=$input_method) vào /etc/sddm.conf.d/10-theme.conf${NC}"
                 echo -e "${BLUE}:: Kích hoạt dịch vụ sddm.service...${NC}"
                 if sudo systemctl enable --force sddm.service 2>&1; then
                     echo -e "${GREEN}✓ Đã kích hoạt sddm.service thành công!${NC}"
@@ -313,6 +331,10 @@ EOF
             if [ "$dry_run" = "true" ]; then
                 echo -e "${YELLOW}[DRY-RUN] Sẽ kích hoạt dịch vụ: sudo systemctl enable ufw.service${NC}"
             else
+                if ! pacman -Q ufw &>/dev/null; then
+                    echo -e "${YELLOW}⚠️ Bỏ qua UFW trigger: gói ufw chưa được cài đặt thành công.${NC}"
+                    return 0
+                fi
                 if sudo systemctl enable ufw.service 2>&1; then
                     echo -e "${GREEN}✓ Đã kích hoạt ufw.service thành công!${NC}"
                 else
@@ -385,6 +407,7 @@ install_selected_apps() {
         exit 1
     fi
 
+    local pkg_install_ok=true
     echo ""
     if [ ${#missing_pkgs[@]} -eq 0 ]; then
         echo -e "${GREEN}✓ Tất cả các gói phần mềm cho ứng dụng đã chọn đều đã có sẵn trên máy!${NC}"
@@ -424,12 +447,24 @@ install_selected_apps() {
             echo -e "${BLUE}:: Đang tiến hành cài đặt gói...${NC}"
             if [ "$helper" = "pacman" ]; then
                 if [ ${#pkgs_to_install[@]} -gt 0 ]; then
-                    sudo pacman -S --needed --noconfirm "${pkgs_to_install[@]}"
+                    if ! sudo pacman -S --needed --noconfirm "${pkgs_to_install[@]}"; then
+                        pkg_install_ok=false
+                    fi
+                fi
+                if [ ${#aur_missing[@]} -gt 0 ]; then
+                    pkg_install_ok=false
                 fi
             else
-                $helper -S --needed --noconfirm "${missing_pkgs[@]}"
+                if ! $helper -S --needed --noconfirm "${missing_pkgs[@]}"; then
+                    pkg_install_ok=false
+                fi
             fi
-            echo -e "${GREEN}✓ Cài đặt gói hoàn tất thành công!${NC}"
+
+            if [ "$pkg_install_ok" = "true" ]; then
+                echo -e "${GREEN}✓ Cài đặt gói hoàn tất thành công!${NC}"
+            else
+                echo -e "${YELLOW}⚠️ Một số gói không thể cài đặt hoàn chỉnh (vui lòng kiểm tra thông báo phía trên).${NC}"
+            fi
         fi
     fi
 
@@ -452,15 +487,17 @@ install_selected_apps() {
         done
 
         for t in "${unique_triggers[@]}"; do
-            run_post_triggers "$t" "$DRY_RUN"
+            run_post_triggers "$t" "$DRY_RUN" "$pkg_install_ok"
         done
     fi
 
     echo ""
     if [ "$DRY_RUN" = "true" ]; then
         echo -e "${GREEN}${BOLD}✓ Mô phỏng hoàn tất an toàn! Không có thay đổi nào được thực hiện trên hệ thống.${NC}"
-    else
+    elif [ "$pkg_install_ok" = "true" ]; then
         echo -e "${GREEN}${BOLD}✓ Hoàn tất cài đặt và cấu hình toàn bộ ứng dụng tùy chọn!${NC}"
+    else
+        echo -e "${YELLOW}${BOLD}⚠️ Quá trình cài đặt ứng dụng tùy chọn hoàn tất nhưng có một số gói không được cài đặt.${NC}"
     fi
     echo ""
 }
