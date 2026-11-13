@@ -11,6 +11,8 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
     exit 0
 fi
 
+export PATH="$HOME/.local/bin:$PATH"
+
 # Paths
 
 PICTURES_DIR="$(xdg-user-dir PICTURES 2>/dev/null || echo "$HOME/Pictures")"
@@ -266,13 +268,10 @@ update_theme_mode
 
 ${SCRIPTSDIR}/WallustSwww.sh &&
 
-sleep 2
-# kill process
-for pid1 in waybar rofi swaync ags swaybg; do
-    killall "$pid1"
-done
-
 sleep 1
+# Stop legacy swaybg only; Refresh.sh reloads waybar (SIGUSR2) and swaync cleanly
+killall -q swaybg 2>/dev/null || true
+
 ${SCRIPTSDIR}/Refresh.sh 
 
 sleep 0.5

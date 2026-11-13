@@ -280,11 +280,17 @@ class SafetyEngine:
 
         return snapshot_id
 
-    def _run_wallpaper_reload(self, resolved_wp: str, wallust_script: str, engine_script: str) -> None:
-        """Applies live wallpaper and dynamic color extraction without shell interpolation."""
+    def _build_user_env(self) -> Dict[str, str]:
+        """Builds subprocess environment with target HOME and ~/.local/bin prioritized."""
         env = os.environ.copy()
+        env["HOME"] = str(self.home)
         local_bin = str(self.home / ".local" / "bin")
         env["PATH"] = f"{local_bin}:{env.get('PATH', '')}"
+        return env
+
+    def _run_wallpaper_reload(self, resolved_wp: str, wallust_script: str, engine_script: str) -> None:
+        """Applies live wallpaper and dynamic color extraction without shell interpolation."""
+        env = self._build_user_env()
 
         try:
             chk = subprocess.run(
@@ -505,6 +511,7 @@ class SafetyEngine:
                     if sig_proc.returncode != 0:
                         subprocess.Popen(
                             ["waybar"],
+                            env=self._build_user_env(),
                             stdout=subprocess.DEVNULL,
                             stderr=subprocess.DEVNULL,
                             start_new_session=True,
@@ -560,8 +567,7 @@ class SafetyEngine:
             try:
                 engine_script = Path(__file__).resolve().parent.parent.parent / "scripts" / "theme-engine.sh"
                 if engine_script.exists():
-                    env = os.environ.copy()
-                    env["HOME"] = str(self.home)
+                    env = self._build_user_env()
                     subprocess.run(
                         [str(engine_script), str(Path(source_path).resolve())],
                         env=env,

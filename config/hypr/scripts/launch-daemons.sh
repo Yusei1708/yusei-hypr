@@ -89,9 +89,19 @@ fi
 # 5. Notification & Control Center (SwayNC)
 if ! pidof swaync >/dev/null 2>&1; then
     echo ":: [Supervisor] Starting SwayNC..."
-    swaync &
+    if command -v systemctl >/dev/null 2>&1 && systemctl --user cat swaync.service >/dev/null 2>&1; then
+        systemctl --user reset-failed swaync.service >/dev/null 2>&1 || true
+        if ! systemctl --user start swaync.service >/dev/null 2>&1; then
+            swaync &
+        fi
+    else
+        swaync &
+    fi
 else
     echo ":: [Supervisor] SwayNC is already running."
+    if command -v systemctl >/dev/null 2>&1 && systemctl --user is-failed --quiet swaync.service 2>/dev/null; then
+        systemctl --user reset-failed swaync.service >/dev/null 2>&1 || true
+    fi
 fi
 
 # 6. Idle Listener (Hypridle)

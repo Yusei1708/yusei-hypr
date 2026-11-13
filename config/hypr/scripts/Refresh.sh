@@ -6,6 +6,8 @@
 
 set -euo pipefail
 
+export PATH="$HOME/.local/bin:$PATH"
+
 SCRIPTSDIR=$HOME/.config/hypr/scripts
 UserScripts=$HOME/.config/hypr/UserScripts
 
@@ -38,13 +40,25 @@ fi
 if pidof swaync >/dev/null 2>&1; then
     swaync-client -rs >/dev/null 2>&1 || true
     swaync-client --reload-config >/dev/null 2>&1 || true
+    if command -v systemctl >/dev/null 2>&1 && systemctl --user is-failed --quiet swaync.service 2>/dev/null; then
+        systemctl --user reset-failed swaync.service >/dev/null 2>&1 || true
+    fi
 else
-    nohup swaync >/dev/null 2>&1 &
+    if command -v systemctl >/dev/null 2>&1 && systemctl --user cat swaync.service >/dev/null 2>&1; then
+        systemctl --user reset-failed swaync.service >/dev/null 2>&1 || true
+        if ! systemctl --user start swaync.service >/dev/null 2>&1; then
+            nohup swaync >/dev/null 2>&1 &
+        fi
+    else
+        nohup swaync >/dev/null 2>&1 &
+    fi
 fi
 
 # Relaunch rainbow borders if enabled
-if [[ -f "${UserScripts}/RainbowBorders.sh" ]]; then
+if [[ -x "${UserScripts}/RainbowBorders.sh" ]]; then
     "${UserScripts}/RainbowBorders.sh" &
+elif [[ -x "${SCRIPTSDIR}/RainbowBorders.sh" ]]; then
+    "${SCRIPTSDIR}/RainbowBorders.sh" &
 fi
 
 exit 0
