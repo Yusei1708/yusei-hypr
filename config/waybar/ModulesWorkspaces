@@ -59,7 +59,6 @@
     "persistent-workspaces": {
       "*": 5
 	},
-	"format": "{icon}",
 	"format-icons": {
             "active": "<span font='12'>󰮯</span>",
             "empty": "<span font='8'></span>",
@@ -116,7 +115,6 @@
   
 //  NUMBERS and ICONS style
 "hyprland/workspaces#4": {
-	"format": "{name}",
 	"format": " {name} {icon} ",
 	//"format": " {icon} ",
 	"show-special": false,

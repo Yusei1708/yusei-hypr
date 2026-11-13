@@ -63,7 +63,12 @@ kill_wallpaper_for_image() {
 mapfile -d '' PICS < <(find -L "${wallDIR}" -type f \( \
   -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.gif" -o \
   -iname "*.bmp" -o -iname "*.tiff" -o -iname "*.webp" -o \
-  -iname "*.mp4" -o -iname "*.mkv" -o -iname "*.mov" -o -iname "*.webm" \) -print0)
+  -iname "*.mp4" -o -iname "*.mkv" -o -iname "*.mov" -o -iname "*.webm" \) -print0 2>/dev/null)
+
+if [[ ${#PICS[@]} -eq 0 ]]; then
+  notify-send -i "$iDIR/error.png" "No Wallpapers Found" "No wallpapers found in $wallDIR" || true
+  exit 1
+fi
 
 RANDOM_PIC="${PICS[$((RANDOM % ${#PICS[@]}))]}"
 RANDOM_PIC_NAME=". random"
@@ -73,13 +78,13 @@ rofi_command="rofi -i -show -dmenu -config $rofi_theme -theme-str $rofi_override
 
 # Sorting Wallpapers
 menu() {
-  IFS=$'\n' sorted_options=($(sort <<<"${PICS[*]}"))
+  mapfile -d '' sorted_options < <(printf '%s\0' "${PICS[@]}" | sort -z)
 
   printf "%s\x00icon\x1f%s\n" "$RANDOM_PIC_NAME" "$RANDOM_PIC"
 
   for pic_path in "${sorted_options[@]}"; do
     pic_name=$(basename "$pic_path")
-    if [[ "$pic_name" =~ \.gif$ ]]; then
+    if [[ "${pic_name,,}" =~ \.gif$ ]]; then
       cache_gif_image="$HOME/.cache/gif_preview/${pic_name}.png"
       if [[ ! -f "$cache_gif_image" ]]; then
         mkdir -p "$HOME/.cache/gif_preview"
@@ -99,33 +104,7 @@ menu() {
   done
 }
 
-
-modify_startup_config() {
-  local selected_file="$1"
-  local startup_config="$HOME/.config/hypr/UserConfigs/Startup_Apps.conf"
-
-  # Check if it's a live wallpaper (video)
-  if [[ "$selected_file" =~ \.(mp4|mkv|mov|webm)$ ]]; then
-    # For video wallpapers:
-    sed -i '/^\s*exec-once\s*=\s*swww-daemon\s*--format\s*xrgb\s*$/s/^/\#/' "$startup_config"
-    sed -i '/^\s*#\s*exec-once\s*=\s*mpvpaper\s*.*$/s/^#\s*//;' "$startup_config"
-
-    # Update the livewallpaper variable with the selected video path (using $HOME)
-    selected_file="${selected_file/#$HOME/\$HOME}" # Replace /home/user with $HOME
-    sed -i "s|^\$livewallpaper=.*|\$livewallpaper=\"$selected_file\"|" "$startup_config"
-
-    echo "Configured for live wallpaper (video)."
-  else
-    # For image wallpapers:
-    sed -i '/^\s*#\s*exec-once\s*=\s*swww-daemon\s*--format\s*xrgb\s*$/s/^\s*#\s*//;' "$startup_config"
-
-    sed -i '/^\s*exec-once\s*=\s*mpvpaper\s*.*$/s/^/\#/' "$startup_config"
-
-    echo "Configured for static wallpaper (image)."
-  fi
-}
-
-# Apply Image Wallpaper
+# Apply Image Wallpaper across all outputs
 apply_image_wallpaper() {
   local image_path="$1"
 
@@ -134,9 +113,13 @@ apply_image_wallpaper() {
   if ! pgrep -x "swww-daemon" >/dev/null; then
     echo "Starting swww-daemon..."
     swww-daemon --format xrgb &
+    for _ in {1..20}; do
+      swww query >/dev/null 2>&1 && break
+      sleep 0.1
+    done
   fi
 
-  swww img -o "$focused_monitor" "$image_path" $SWWW_PARAMS
+  swww img "$image_path" $SWWW_PARAMS
 
   # Run WallustSwww.sh synchronously (handles theme-engine + live reload signals)
   "$SCRIPTSDIR/WallustSwww.sh" "$image_path"
@@ -159,31 +142,33 @@ apply_video_wallpaper() {
 # Main function
 main() {
   choice=$(menu | $rofi_command)
-  choice=$(echo "$choice" | xargs)
-  RANDOM_PIC_NAME=$(echo "$RANDOM_PIC_NAME" | xargs)
+  choice="${choice#"${choice%%[![:space:]]*}"}"
+  choice="${choice%"${choice##*[![:space:]]}"}"
+  RANDOM_PIC_NAME="${RANDOM_PIC_NAME#"${RANDOM_PIC_NAME%%[![:space:]]*}"}"
+  RANDOM_PIC_NAME="${RANDOM_PIC_NAME%"${RANDOM_PIC_NAME##*[![:space:]]}"}"
 
   if [[ -z "$choice" ]]; then
     echo "No choice selected. Exiting."
     exit 0
   fi
 
-  # Handle random selection correctly
+  # Handle random or exact full-filename selection
+  local selected_file=""
   if [[ "$choice" == "$RANDOM_PIC_NAME" ]]; then
-    choice=$(basename "$RANDOM_PIC")
+    selected_file="$RANDOM_PIC"
+  else
+    for pic_path in "${PICS[@]}"; do
+      if [[ "$(basename "$pic_path")" == "$choice" ]]; then
+        selected_file="$pic_path"
+        break
+      fi
+    done
   fi
-
-  choice_basename=$(basename "$choice" | sed 's/\(.*\)\.[^.]*$/\1/')
-
-  # Search for the selected file in the wallpapers directory, including subdirectories
-  selected_file=$(find "$wallDIR" -iname "$choice_basename.*" -print -quit)
 
   if [[ -z "$selected_file" ]]; then
     echo "File not found. Selected choice: $choice"
     exit 1
   fi
-
-  # Modify the Startup_Apps.conf file based on wallpaper type
-  modify_startup_config "$selected_file"
 
   # **CHECK FIRST** if it's a video or an image **before calling any function**
   if [[ "$selected_file" =~ \.(mp4|mkv|mov|webm|MP4|MKV|MOV|WEBM)$ ]]; then

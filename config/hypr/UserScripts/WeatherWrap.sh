@@ -2,9 +2,33 @@
 # /* ---- 💫 https://github.com/JaKooLit 💫 ---- */  ##
 # Weather entrypoint: prefer Python (Open‑Meteo), fallback to legacy Bash (wttr.in)
 
-SCRIPT_DIR="$(dirname "$0")"
-PY_SCRIPT="$SCRIPT_DIR/Weather.py"
-BASH_FALLBACK="$SCRIPT_DIR/Weather.sh"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+PY_SCRIPT=""
+for py_candidate in \
+    "$HOME/.config/hypr/UserScripts/Weather.py" \
+    "$HOME/.config/hypr/scripts/Weather.py" \
+    "$SCRIPT_DIR/Weather.py" \
+    "$SCRIPT_DIR/../UserScripts/Weather.py" \
+    "$SCRIPT_DIR/../scripts/Weather.py"; do
+    if [ -f "$py_candidate" ]; then
+        PY_SCRIPT="$py_candidate"
+        break
+    fi
+done
+
+BASH_FALLBACK=""
+for sh_candidate in \
+    "$SCRIPT_DIR/Weather.sh" \
+    "$HOME/.config/hypr/scripts/Weather.sh" \
+    "$HOME/.config/hypr/UserScripts/Weather.sh" \
+    "$SCRIPT_DIR/../scripts/Weather.sh" \
+    "$SCRIPT_DIR/../UserScripts/Weather.sh"; do
+    if [ -f "$sh_candidate" ]; then
+        BASH_FALLBACK="$sh_candidate"
+        break
+    fi
+done
 
 # Function to check network connectivity
 check_network() {
@@ -31,7 +55,7 @@ if ! check_network; then
 fi
 
 run_fallback() {
-    if [ -f "$BASH_FALLBACK" ]; then
+    if [ -n "$BASH_FALLBACK" ] && [ -f "$BASH_FALLBACK" ]; then
         # Invoke via bash to avoid requiring +x and ensure consistent shell
         bash "$BASH_FALLBACK" "$@"
         return $?
@@ -41,7 +65,7 @@ run_fallback() {
     fi
 }
 
-if command -v python3 >/dev/null 2>&1; then
+if [ -n "$PY_SCRIPT" ] && command -v python3 >/dev/null 2>&1; then
     python3 "$PY_SCRIPT" "$@"
     exit_code=$?
     if [ "$exit_code" -eq 0 ]; then
@@ -51,7 +75,11 @@ if command -v python3 >/dev/null 2>&1; then
     run_fallback "$@"
     exit $?
 else
-    echo "python3 not found in PATH — falling back to Weather.sh" >&2
+    if [ -z "$PY_SCRIPT" ]; then
+        echo "Weather.py not found — falling back to Weather.sh" >&2
+    else
+        echo "python3 not found in PATH — falling back to Weather.sh" >&2
+    fi
     run_fallback "$@"
     exit $?
 fi

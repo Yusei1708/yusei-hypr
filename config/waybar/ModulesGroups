@@ -133,7 +133,7 @@
      "modules": [
         "custom/power",
         "custom/lock",
-        "custom/logout",
+        "custom/quit",
         "custom/reboot"
       ]
 },

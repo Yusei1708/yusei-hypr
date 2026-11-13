@@ -19,11 +19,14 @@ msg='☣️ NOTE ☣️: Clicking with Mouse or Pressing ENTER will have NO func
 
 # collect raw bind lines (strip end-of-line comments) from available files
 files=()
-for kconf in "$HOME/.config/hypr/keybinds.conf" \
+for kconf in "$HOME/.config/hypr/userprefs.lua" \
+             "$HOME/.config/hypr/hyprland.lua" \
+             "$HOME/.config/hypr/keybinds.conf" \
              "$HOME/.config/hypr/configs/Keybinds.conf" \
-             "$HOME/.config/hypr/UserConfigs/UserKeybinds.conf" \
+             "$HOME/.config/hypr/configs/Laptops.conf" \
              "$HOME/.config/hypr/Laptops.conf" \
-             "$HOME/.config/hypr/UserConfigs/Laptops.conf"; do
+             "$HOME/.config/hypr/UserConfigs/Laptops.conf" \
+             "$HOME/.config/hypr/UserConfigs/UserKeybinds.conf"; do
     [[ -f "$kconf" ]] && files+=("$kconf")
 done
 

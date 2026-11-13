@@ -15,7 +15,7 @@
 	"position": "top",
 
 	"modules-left": [
-		"hyprland/mode",
+		"hyprland/submap",
 		"hyprland/workspaces",
 		"custom/arrow10",
 		"hyprland/window"

@@ -8,12 +8,16 @@ PICTURES_DIR="$(xdg-user-dir PICTURES 2>/dev/null || echo "$HOME/Pictures")"
 wallDIR="$PICTURES_DIR/wallpapers"
 SCRIPTSDIR="$HOME/.config/hypr/scripts"
 
-focused_monitor=$(hyprctl monitors -j | jq -r '(.[] | select(.focused) | .name) // .[0].name')
-
 mapfile -d '' PICS < <(find -L "${wallDIR}" -type f \( \
   -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.pnm" -o \
   -iname "*.tga" -o -iname "*.tiff" -o -iname "*.webp" -o -iname "*.bmp" -o \
-  -iname "*.farbfeld" -o -iname "*.gif" \) -print0)
+  -iname "*.farbfeld" -o -iname "*.gif" \) -print0 2>/dev/null)
+
+if [[ ${#PICS[@]} -eq 0 ]]; then
+  notify-send -u low -i "$HOME/.config/swaync/images/error.png" "No Wallpapers Found" "No image files found in $wallDIR" || true
+  exit 1
+fi
+
 RANDOMPICS="${PICS[$((RANDOM % ${#PICS[@]}))]}"
 
 # Transition config
@@ -25,8 +29,12 @@ SWWW_PARAMS="--transition-fps $FPS --transition-type $TYPE --transition-duration
 
 if ! pgrep -x "swww-daemon" >/dev/null; then
   swww-daemon --format xrgb &
+  for _ in {1..20}; do
+    swww query >/dev/null 2>&1 && break
+    sleep 0.1
+  done
 fi
-swww img -o "$focused_monitor" "$RANDOMPICS" $SWWW_PARAMS
+swww img "$RANDOMPICS" $SWWW_PARAMS
 
 "$SCRIPTSDIR/WallustSwww.sh" "$RANDOMPICS"
 

@@ -21,7 +21,7 @@
         "idle_inhibitor",
         "custom/separator#blank",
         "tray",
-        "connections",
+        "group/connections",
         "clock",
         "network#speed",
 
@@ -70,10 +70,8 @@
       "modules-left": [        "hyprland/window",
       "custom/cava_mviz", "custom/playerctl"],
       "modules-center": ["wlr/taskbar"],
-      "modules-right": ["custom/backlight",
-      "backlight/slider",
-      "custom/speaker",
-      "pulseaudio/slider", "custom/updater",
+      "modules-right": ["backlight",
+      "pulseaudio", "custom/updater",
       ],
     }
   ]

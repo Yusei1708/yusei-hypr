@@ -106,8 +106,12 @@ manage_music() {
     entry=$(awk -F'|' '{print $1}' "$music_list" | rofi -dmenu -config "$rofi_theme_menu" \
       -theme-str 'entry { placeholder: "🗑️ Select Music to Remove"; }')
     [[ -z "$entry" ]] && return
-    grep -vF "$entry" "$music_list" >"$music_list.tmp" && mv "$music_list.tmp" "$music_list"
-    notification "Removed" "$entry"
+    full_line=$(ENTRY="$entry" awk -F'|' '$1 == ENVIRON["ENTRY"] {print; exit}' "$music_list")
+    if [[ -n "$full_line" ]]; then
+      grep -vxF "$full_line" "$music_list" >"$music_list.tmp" || true
+      mv "$music_list.tmp" "$music_list"
+      notification "Removed" "$entry"
+    fi
     ;;
   "View List")
     # Show only titles, not URLs

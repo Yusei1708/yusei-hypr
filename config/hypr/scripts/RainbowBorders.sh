@@ -21,19 +21,22 @@ WALLUST_COLORS=()
 
 # ---------- LOAD WALLUST COLORS ----------
 if [[ "$EFFECT_TYPE" == "wallust_random" || "$EFFECT_TYPE" == "gradient_flow" ]]; then
-    # Accept either hex (0xffRRGGBB) or rgb(r,g,b) and normalize to 0xffRRGGBB
-    mapfile -t WALLUST_COLORS < <(
-        grep -E '^\$color[0-9]+' "$WALLUST_COLORS_SOURCE" | awk '
-        function hex2(s){ return (length(s)==6 ? "0xff"s : ""); }
-        function rgb2(r,g,b){ return sprintf("0xff%02x%02x%02x", r, g, b); }
-        {
-            if (match($0, /0x([0-9a-fA-F]{8})/, m)) { print "0x" m[1]; next }
-            if (match($0, /#([0-9a-fA-F]{6})/, m))  { print hex2(m[1]); next }
-            if (match($0, /rgb\(([0-9]+),[ ]*([0-9]+),[ ]*([0-9]+)\)/, m)) {
-                print rgb2(m[1], m[2], m[3]); next
-            }
-        }'
-    )
+    # Accept hex (0xffRRGGBB, #RRGGBB, rgb(RRGGBB)) or rgb(r,g,b) and normalize to 0xffRRGGBB
+    if [[ -f "$WALLUST_COLORS_SOURCE" ]]; then
+        mapfile -t WALLUST_COLORS < <(
+            grep -E '^\$color[0-9]+' "$WALLUST_COLORS_SOURCE" | awk '
+            function hex2(s){ return (length(s)==6 ? "0xff"s : ""); }
+            function rgb2(r,g,b){ return sprintf("0xff%02x%02x%02x", r, g, b); }
+            {
+                if (match($0, /0x([0-9a-fA-F]{8})/, m)) { print "0x" m[1]; next }
+                if (match($0, /#([0-9a-fA-F]{6})/, m))  { print hex2(m[1]); next }
+                if (match($0, /rgb\([ ]*([0-9a-fA-F]{6})[ ]*\)/, m)) { print hex2(m[1]); next }
+                if (match($0, /rgb\([ ]*([0-9]+),[ ]*([0-9]+),[ ]*([0-9]+)[ ]*\)/, m)) {
+                    print rgb2(m[1], m[2], m[3]); next
+                }
+            }'
+        )
+    fi
 
     if (( ${#WALLUST_COLORS[@]} == 0 )); then
         # If wallust colors can't be loaded, fall back to random_hex

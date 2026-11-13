@@ -40,7 +40,7 @@ apply_rofi_theme_to_config() {
   cp "$ROFI_CONFIG_FILE" "$temp_rofi_config_file"
 
   # Comment out any existing @theme entry
-  sed -i -E 's/^(\s*@theme)/\\/\\/\1/' "$temp_rofi_config_file"
+  sed -i -E 's|^(\s*@theme)|//\1|' "$temp_rofi_config_file"
 
   # Add the new @theme entry at the end of the file
   echo "@theme \"$theme_path_with_tilde\"" >>"$temp_rofi_config_file"
@@ -55,7 +55,7 @@ apply_rofi_theme_to_config() {
   if [ "$total_lines" -gt "$max_lines" ]; then
     local excess=$((total_lines - max_lines))
     for ((i = 1; i <= excess; i++)); do
-      sed -i '0,/^\s*\/\/@theme/s///' "$ROFI_CONFIG_FILE"
+      sed -i '0,/^\s*\/\/\s*@theme/s///' "$ROFI_CONFIG_FILE"
     done
   fi
 

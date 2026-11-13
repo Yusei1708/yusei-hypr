@@ -41,26 +41,30 @@ city=$(get_current_city)
 
 # If city is empty, that means the IP check failed, which means, we should use manual setting 
 if [ -z "$city" ] || [ "$city" = "Unknown" ]; then
-    # SET YOUR MANUAL CITY HERE
-    city=" "  # ← Change this to your preferred city
-    echo "Using manual city: $city" >&2
+    # SET YOUR MANUAL CITY HERE (leave empty for wttr.in auto-location)
+    city=""  # ← Change this to your preferred city
+    if [ -n "$city" ]; then
+        echo "Using manual city: $city" >&2
+    fi
 fi
 
 # URL-encode city for safe use in URLs
 encoded_city="$city"
-if command -v python3 >/dev/null 2>&1; then
-    encoded_city=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))' "$city")
-elif command -v jq >/dev/null 2>&1; then
-    encoded_city=$(printf '%s' "$city" | jq -sRr @uri)
-else
-    # Minimal fallback: encode a few common special characters
-    encoded_city=$(printf '%s' "$city" | sed -e 's/ /%20/g' -e 's/&/%26/g' -e 's/?/%3F/g' -e 's/#/%23/g')
+if [ -n "$city" ]; then
+    if command -v python3 >/dev/null 2>&1; then
+        encoded_city=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))' "$city")
+    elif command -v jq >/dev/null 2>&1; then
+        encoded_city=$(printf '%s' "$city" | jq -sRr @uri)
+    else
+        # Minimal fallback: encode a few common special characters
+        encoded_city=$(printf '%s' "$city" | sed -e 's/ /%20/g' -e 's/&/%26/g' -e 's/?/%3F/g' -e 's/#/%23/g')
+    fi
 fi
 
 
 cachedir="$HOME/.cache/rbn"
 # Include city and arg in cache key so changing city invalidates old cache
-cache_key="${city}_${1}"
+cache_key="${city}_${1:-}"
 # Sanitize cache key to avoid problematic characters in filename
 safe_key=$(printf '%s' "$cache_key" | tr -c '[:alnum:]_-' '_')
 cachefile=${0##*/}-$safe_key

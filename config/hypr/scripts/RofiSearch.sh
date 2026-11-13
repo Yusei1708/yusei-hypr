@@ -3,19 +3,23 @@
 # For Searching via web browsers
 
 # Set safe default engine
-Search_Engine="https://www.google.com/search?q="
+Search_Engine="https://www.google.com/search?q={}"
 
-# Check optional config file
-config_file=$HOME/.config/hypr/UserConfigs/01-UserDefaults.conf
+# Check optional config file (parse $Search_Engine without eval)
+config_file="$HOME/.config/hypr/UserConfigs/01-UserDefaults.conf"
 for conf in "$config_file" "$HOME/.config/hypr/01-UserDefaults.conf"; do
     if [[ -f "$conf" ]]; then
-        config_content=$(sed 's/\$//g' "$conf" | sed 's/ = /=/')
-        eval "$config_content"
-        break
+        parsed_engine=$(grep -E '^[[:space:]]*\$?Search_Engine[[:space:]]*=' "$conf" \
+            | tail -n 1 \
+            | sed -E 's/^[^=]*=[[:space:]]*//; s/[[:space:]]+#.*$//; s/^[[:space:]]+|[[:space:]]+$//g; s/^["'\'']|["'\'']$//g')
+        if [[ -n "$parsed_engine" ]]; then
+            Search_Engine="$parsed_engine"
+            break
+        fi
     fi
 done
 
-# Check if $term is set correctly
+# Check if $Search_Engine is set correctly
 if [[ -z "$Search_Engine" ]]; then
     echo "Error: \$Search_Engine is not set in the configuration file!"
     exit 1
@@ -38,4 +42,10 @@ if [[ -z "$query" ]]; then
 fi
 
 encoded_query=$(printf '%s' "$query" | jq -sRr @uri)
-xdg-open "${Search_Engine}${encoded_query}" >/dev/null 2>&1 &
+shopt -u patsub_replacement 2>/dev/null || true
+if [[ "$Search_Engine" == *"{}"* ]]; then
+    search_url="${Search_Engine//\{\}/$encoded_query}"
+else
+    search_url="${Search_Engine}${encoded_query}"
+fi
+xdg-open "$search_url" >/dev/null 2>&1 &

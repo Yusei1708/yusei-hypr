@@ -16,23 +16,44 @@ active_window_class=$(hyprctl -j activewindow | jq -r '(.class)')
 active_window_file="Screenshot_${time}_${active_window_class}.png"
 active_window_path="${dir}/${active_window_file}"
 
-notify_cmd_base="notify-send -t 3000 -A action1=Open -A action2=Delete -h string:x-canonical-private-synchronous:shot-notify"
+notify_cmd_base="notify-send -t 10000 -A action1=Open -A action2=Delete -h string:x-canonical-private-synchronous:shot-notify"
 notify_cmd_shot="${notify_cmd_base} -i ${iDIR}/picture.png "
 notify_cmd_shot_win="${notify_cmd_base} -i ${iDIR}/picture.png "
 notify_cmd_NOT="notify-send -u low -t 3000 -i ${iDoR}/note.png "
 
+tmpfile=""
+cleanup() {
+    if [[ -n "${tmpfile:-}" && -e "$tmpfile" ]]; then
+        rm -f -- "$tmpfile"
+    fi
+}
+trap cleanup EXIT
+
+capture_and_save() {
+    local dest="$1"
+    shift
+    rm -f -- "${tmpfile:-}"
+    tmpfile=$(mktemp --suffix=.png)
+    if grim "$@" "$tmpfile" && [[ -s "$tmpfile" ]]; then
+        cp -- "$tmpfile" "$dest"
+        wl-copy <"$tmpfile"
+        return 0
+    fi
+    return 1
+}
+
 # notify and view screenshot
 notify_view() {
     if [[ "$1" == "active" ]]; then
-        if [[ -e "${active_window_path}" ]]; then
+        if [[ -s "${active_window_path}" ]]; then
 			"${sDIR}/Sounds.sh" --screenshot        
-            resp=$(timeout 3 ${notify_cmd_shot_win} " Screenshot of:" " ${active_window_class} Saved.")
+            resp=$(timeout 10 ${notify_cmd_shot_win} " Screenshot of:" " ${active_window_class} Saved.")
             case "$resp" in
 				action1)
 					xdg-open "${active_window_path}" &
 					;;
 				action2)
-					rm "${active_window_path}" &
+					rm -f -- "${active_window_path}" &
 					;;
 			esac
         else
@@ -42,27 +63,27 @@ notify_view() {
 
     elif [[ "$1" == "swappy" ]]; then
 		"${sDIR}/Sounds.sh" --screenshot
-		resp=$(timeout 3 ${notify_cmd_shot} " Screenshot:" " Captured by Swappy")
+		resp=$(timeout 10 ${notify_cmd_shot} " Screenshot:" " Captured by Swappy")
 		case "$resp" in
 			action1)
 				swappy -f - <"$tmpfile"
 				;;
 			action2)
-				rm "$tmpfile"
+				rm -f -- "$tmpfile"
 				;;
 		esac
 
     else
         local check_file="${dir}/${file}"
-        if [[ -e "$check_file" ]]; then
+        if [[ -s "$check_file" ]]; then
             "${sDIR}/Sounds.sh" --screenshot
-            resp=$(timeout 3 ${notify_cmd_shot} " Screenshot" " Saved")
+            resp=$(timeout 10 ${notify_cmd_shot} " Screenshot" " Saved")
 			case "$resp" in
 				action1)
 					xdg-open "${check_file}" &
 					;;
 				action2)
-					rm "${check_file}" &
+					rm -f -- "${check_file}" &
 					;;
 			esac
         else
@@ -82,60 +103,65 @@ countdown() {
 
 # take shots
 shotnow() {
-	cd ${dir} && grim - | tee "$file" | wl-copy
+	capture_and_save "${dir}/${file}" || true
 	notify_view
 }
 
 shot5() {
 	countdown '5'
-	sleep 1 && cd ${dir} && grim - | tee "$file" | wl-copy
+	sleep 1
+	capture_and_save "${dir}/${file}" || true
 	sleep 1
 	notify_view
 }
 
 shot10() {
 	countdown '10'
-	sleep 1 && cd ${dir} && grim - | tee "$file" | wl-copy
+	sleep 1
+	capture_and_save "${dir}/${file}" || true
+	sleep 1
 	notify_view
 }
 
 shotwin() {
 	w_pos=$(hyprctl activewindow | grep 'at:' | cut -d':' -f2 | tr -d ' ' | tail -n1)
 	w_size=$(hyprctl activewindow | grep 'size:' | cut -d':' -f2 | tr -d ' ' | tail -n1 | sed s/,/x/g)
-	cd ${dir} && grim -g "$w_pos $w_size" - | tee "$file" | wl-copy
+	if [[ -n "$w_pos" && -n "$w_size" ]]; then
+		capture_and_save "${dir}/${file}" -g "$w_pos $w_size" || true
+	fi
 	notify_view
 }
 
 shotarea() {
-	tmpfile=$(mktemp)
-	grim -g "$(slurp)" - >"$tmpfile"
-
-  # Copy with saving
-	if [[ -s "$tmpfile" ]]; then
-		wl-copy <"$tmpfile"
-		mv "$tmpfile" "$dir/$file"
+	local geom
+	if geom=$(slurp) && [[ -n "$geom" ]]; then
+		capture_and_save "${dir}/${file}" -g "$geom" || true
 	fi
 	notify_view
 }
 
 shotactive() {
-    active_window_class=$(hyprctl -j activewindow | jq -r '(.class)')
-    active_window_file="Screenshot_${time}_${active_window_class}.png"
+    local geom
+    active_window_class=$(hyprctl -j activewindow | jq -r '(.class // empty)')
+    active_window_class="${active_window_class//\//_}"
+    active_window_file="Screenshot_${time}_${active_window_class:-none}.png"
     active_window_path="${dir}/${active_window_file}"
 
-    hyprctl -j activewindow | jq -r '"\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])"' | grim -g - "${active_window_path}"
+    geom=$(hyprctl -j activewindow | jq -r 'select(.at and .size) | "\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])"')
+    if [[ -n "$geom" ]]; then
+        capture_and_save "${active_window_path}" -g "$geom" || true
+    fi
     notify_view "active"
 }
 
 shotswappy() {
-	tmpfile=$(mktemp)
-	grim -g "$(slurp)" - >"$tmpfile" 
-
-  # Copy without saving
-  if [[ -s "$tmpfile" ]]; then
+	local geom
+	rm -f -- "${tmpfile:-}"
+	tmpfile=$(mktemp --suffix=.png)
+	if geom=$(slurp) && [[ -n "$geom" ]] && grim -g "$geom" "$tmpfile" && [[ -s "$tmpfile" ]]; then
 		wl-copy <"$tmpfile"
-    notify_view "swappy"
-  fi
+		notify_view "swappy"
+	fi
 }
 
 if [[ ! -d "$dir" ]]; then

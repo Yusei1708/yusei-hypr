@@ -35,6 +35,9 @@
     "notifications"
   ],
   "widget-config": {
+    "notifications": {
+      "vexpand": true
+    },
     "title": {
       "text": "Control Center",
       "clear-all-button": true,
