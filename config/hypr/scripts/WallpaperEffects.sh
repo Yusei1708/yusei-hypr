@@ -2,9 +2,15 @@
 # /* ---- 💫 https://github.com/JaKooLit 💫 ---- */  #
 # Wallpaper Effects using ImageMagick (SUPER SHIFT W)
 
+export PATH="$HOME/.local/bin:$PATH"
+
 # Variables
 terminal=kitty
 wallpaper_current="$HOME/.config/hypr/wallpaper_effects/.wallpaper_current"
+if [[ ! -f "$wallpaper_current" && -f "$HOME/.config/hypr/.current_wallpaper" ]]; then
+    mkdir -p "$(dirname "$wallpaper_current")"
+    ln -sf "$(readlink -f "$HOME/.config/hypr/.current_wallpaper" 2>/dev/null || printf '%s' "$HOME/.config/hypr/.current_wallpaper")" "$wallpaper_current" 2>/dev/null || true
+fi
 wallpaper_output="$HOME/.config/hypr/wallpaper_effects/.wallpaper_modified"
 SCRIPTSDIR="$HOME/.config/hypr/scripts"
 focused_monitor=$(hyprctl monitors -j | jq -r '.[] | select(.focused) | .name')
@@ -45,12 +51,10 @@ declare -A effects=(
 
 # Function to apply no effects
 no-effects() {
-    swww img -o "$focused_monitor" "$wallpaper_current" $SWWW_PARAMS &&
-    wait $!
-    wallust run "$wallpaper_current" -s &&
-    wait $!
+    swww img -o "$focused_monitor" "$wallpaper_current" $SWWW_PARAMS
+    wallust run "$wallpaper_current" -s || true
     # Refresh rofi, waybar, wallust palettes
-	sleep 2
+	sleep 1
 	"$SCRIPTSDIR/Refresh.sh"
 
     notify-send -u low -i "$iDIR/ja.png" "No wallpaper" "effects applied"

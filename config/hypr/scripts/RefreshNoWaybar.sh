@@ -7,6 +7,7 @@
 
 SCRIPTSDIR=$HOME/.config/hypr/scripts
 UserScripts=$HOME/.config/hypr/UserScripts
+export PATH="$HOME/.local/bin:$PATH"
 
 # Define file_exists function
 file_exists() {
@@ -42,6 +43,8 @@ swaync-client --reload-config >/dev/null 2>&1 || true
 # Relaunching rainbow borders if the script exists
 if file_exists "${UserScripts}/RainbowBorders.sh"; then
     "${UserScripts}/RainbowBorders.sh" &
+elif file_exists "${SCRIPTSDIR}/RainbowBorders.sh"; then
+    "${SCRIPTSDIR}/RainbowBorders.sh" &
 fi
 
 exit 0

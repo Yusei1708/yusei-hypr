@@ -34,9 +34,9 @@ chosen_file=$(echo "$mon_profiles_list" | rofi -i -dmenu -config $rofi_theme -me
 if [[ -n "$chosen_file" ]]; then
     full_path="$monitor_dir/$chosen_file.conf"
     cp "$full_path" "$target"
-    
+    hyprctl reload config-only >/dev/null 2>&1 || hyprctl reload >/dev/null 2>&1 || true
     notify-send -u low -i "$iDIR/ja.png" "$chosen_file" "Monitor Profile Loaded"
 fi
 
 sleep 1
-${SCRIPTSDIR}/RefreshNoWaybar.sh &
+"${SCRIPTSDIR}/RefreshNoWaybar.sh" &
