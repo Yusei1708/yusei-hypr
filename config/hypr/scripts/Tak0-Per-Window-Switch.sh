@@ -143,6 +143,10 @@ is_listener_running() {
 
 # Listen to focus events and restore window-specific layouts
 subscribe() {
+  if ! command -v socat >/dev/null 2>&1; then
+    echo "Error: socat is required for window-switch listener." >&2
+    exit 1
+  fi
   local SOCKET2="$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket2.sock"
   [[ -S "$SOCKET2" ]] || { echo "Error: Hyprland socket not found." >&2; exit 1; }
 

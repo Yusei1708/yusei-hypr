@@ -268,6 +268,10 @@ PACKAGES=(
     pacman-contrib
     yad
     hyprpicker
+    hyprsunset
+    wf-recorder
+    tesseract
+    tesseract-data-eng
 
     # Python runtime dependencies (yusei_settings GTK/Web & PIL theme extraction)
     python-gobject

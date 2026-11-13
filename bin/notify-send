@@ -22,7 +22,50 @@ if [[ $# -eq 1 && "$1" == "-h" ]]; then
     exec "$REAL_NOTIFY_SEND" "$@"
 fi
 
+resolve_icon_arg() {
+    local val="$1"
+    local expanded="${val/#\~/$HOME}"
+
+    # Leave icon theme names untouched (no slash)
+    if [[ -z "$expanded" || "$expanded" != */* ]]; then
+        printf '%s' "$val"
+        return 0
+    fi
+
+    # Keep existing filesystem icon paths untouched
+    if [[ -e "$expanded" ]]; then
+        printf '%s' "$val"
+        return 0
+    fi
+
+    local base="${expanded##*/}"
+    local xdg_cfg="${XDG_CONFIG_HOME:-$HOME/.config}"
+    if [[ -e "$xdg_cfg/swaync/icons/$base" ]]; then
+        printf '%s' "$xdg_cfg/swaync/icons/$base"
+        return 0
+    fi
+    if [[ -e "$HOME/.config/swaync/icons/$base" ]]; then
+        printf '%s' "$HOME/.config/swaync/icons/$base"
+        return 0
+    fi
+
+    case "${base,,}" in
+        error*) printf '%s' "dialog-error" ;;
+        warn*) printf '%s' "dialog-warning" ;;
+        bell*|ja.png|note*|info*) printf '%s' "dialog-information" ;;
+        music*) printf '%s' "audio-x-generic" ;;
+        picture*) printf '%s' "image-x-generic" ;;
+        palette*|dropper*) printf '%s' "applications-graphics" ;;
+        timer*) printf '%s' "alarm-symbolic" ;;
+        volume*) printf '%s' "audio-volume-medium" ;;
+        mic*|microphone*) printf '%s' "audio-input-microphone" ;;
+        brightness*) printf '%s' "display-brightness-symbolic" ;;
+        *) printf '%s' "dialog-information" ;;
+    esac
+}
+
 orig_args=("$@")
+resolved_orig_args=()
 new_args=()
 timeout_val=3000
 passthrough=false
@@ -31,6 +74,7 @@ stop_opts=false
 
 while [[ $# -gt 0 ]]; do
     if [[ "$stop_opts" == "true" ]]; then
+        resolved_orig_args+=("$1")
         new_args+=("$1")
         shift
         continue
@@ -39,6 +83,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --)
             stop_opts=true
+            resolved_orig_args+=("$1")
             new_args+=("$1")
             shift
             ;;
@@ -49,14 +94,17 @@ while [[ $# -gt 0 ]]; do
             has_action=true
             passthrough=true
             if [[ $# -ge 2 ]]; then
+                resolved_orig_args+=("$1" "$2")
                 shift 2
             else
+                resolved_orig_args+=("$1")
                 shift
             fi
             ;;
         -A*|--action=*)
             has_action=true
             passthrough=true
+            resolved_orig_args+=("$1")
             shift
             ;;
         -u|--urgency)
@@ -64,10 +112,12 @@ while [[ $# -gt 0 ]]; do
                 if [[ "${2,,}" == "critical" ]]; then
                     passthrough=true
                 fi
+                resolved_orig_args+=("$1" "$2")
                 new_args+=("$1" "$2")
                 shift 2
                 continue
             fi
+            resolved_orig_args+=("$1")
             new_args+=("$1")
             shift
             ;;
@@ -76,6 +126,7 @@ while [[ $# -gt 0 ]]; do
             if [[ "${val,,}" == "critical" ]]; then
                 passthrough=true
             fi
+            resolved_orig_args+=("$1")
             new_args+=("$1")
             shift
             ;;
@@ -84,11 +135,13 @@ while [[ $# -gt 0 ]]; do
             if [[ "${val,,}" == "critical" ]]; then
                 passthrough=true
             fi
+            resolved_orig_args+=("$1")
             new_args+=("$1")
             shift
             ;;
         -t|--expire-time)
             if [[ $# -ge 2 ]]; then
+                resolved_orig_args+=("$1" "$2")
                 val="$2"
                 if [[ "$val" =~ ^[0-9]+$ ]]; then
                     if (( 10#$val == 0 || 10#$val >= 5000 )); then
@@ -102,10 +155,12 @@ while [[ $# -gt 0 ]]; do
                 shift 2
                 continue
             fi
+            resolved_orig_args+=("$1")
             new_args+=("$1")
             shift
             ;;
         --expire-time=*)
+            resolved_orig_args+=("$1")
             val="${1#*=}"
             if [[ "$val" =~ ^[0-9]+$ ]]; then
                 if (( 10#$val == 0 || 10#$val >= 5000 )); then
@@ -119,6 +174,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         -t?*)
+            resolved_orig_args+=("$1")
             val="${1#-t}"
             if [[ "$val" =~ ^[0-9]+$ ]]; then
                 if (( 10#$val == 0 || 10#$val >= 5000 )); then
@@ -137,10 +193,12 @@ while [[ $# -gt 0 ]]; do
                 if [[ "$hint_val" == *x-canonical-private-synchronous:* ]]; then
                     passthrough=true
                 fi
+                resolved_orig_args+=("$1" "$2")
                 new_args+=("$1" "$2")
                 shift 2
                 continue
             fi
+            resolved_orig_args+=("$1")
             new_args+=("$1")
             shift
             ;;
@@ -149,6 +207,7 @@ while [[ $# -gt 0 ]]; do
             if [[ "$hint_val" == *x-canonical-private-synchronous:* ]]; then
                 passthrough=true
             fi
+            resolved_orig_args+=("$1")
             new_args+=("$1")
             shift
             ;;
@@ -157,19 +216,47 @@ while [[ $# -gt 0 ]]; do
             if [[ "$hint_val" == *x-canonical-private-synchronous:* ]]; then
                 passthrough=true
             fi
+            resolved_orig_args+=("$1")
             new_args+=("$1")
             shift
             ;;
-        -a|--app-name|-i|--icon|-n|--app-icon|-c|--category|-r|--replace-id|--id-fd|--selected-action-fd|--activation-token-fd)
+        -i|--icon)
             if [[ $# -ge 2 ]]; then
+                resolved_icon="$(resolve_icon_arg "$2")"
+                resolved_orig_args+=("$1" "$resolved_icon")
+                new_args+=("$1" "$resolved_icon")
+                shift 2
+                continue
+            fi
+            resolved_orig_args+=("$1")
+            new_args+=("$1")
+            shift
+            ;;
+        --icon=*)
+            resolved_icon="$(resolve_icon_arg "${1#--icon=}")"
+            resolved_orig_args+=("--icon=$resolved_icon")
+            new_args+=("--icon=$resolved_icon")
+            shift
+            ;;
+        -i?*)
+            resolved_icon="$(resolve_icon_arg "${1#-i}")"
+            resolved_orig_args+=("-i$resolved_icon")
+            new_args+=("-i$resolved_icon")
+            shift
+            ;;
+        -a|--app-name|-n|--app-icon|-c|--category|-r|--replace-id|--id-fd|--selected-action-fd|--activation-token-fd)
+            if [[ $# -ge 2 ]]; then
+                resolved_orig_args+=("$1" "$2")
                 new_args+=("$1" "$2")
                 shift 2
                 continue
             fi
+            resolved_orig_args+=("$1")
             new_args+=("$1")
             shift
             ;;
         *)
+            resolved_orig_args+=("$1")
             new_args+=("$1")
             shift
             ;;
@@ -182,7 +269,7 @@ if [[ "$has_action" == "true" ]]; then
 fi
 
 if [[ "$passthrough" == "true" ]]; then
-    exec "$REAL_NOTIFY_SEND" "${orig_args[@]}"
+    exec "$REAL_NOTIFY_SEND" "${resolved_orig_args[@]}"
 fi
 
 exec "$REAL_NOTIFY_SEND" \

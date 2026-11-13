@@ -20,7 +20,7 @@
 
 "custom/hyprpicker": {
 	"format": "",
-	"on-click": "hyprpicker | wl-copy",
+	"on-click": "bash -c 'if command -v hyprpicker >/dev/null 2>&1; then hyprpicker | wl-copy; else notify-send -u normal \"Hyprpicker\" \"Package hyprpicker is not installed.\"; fi'",
 	"tooltip": true,
 	"tooltip-format": "Hyprpicker",
 },
