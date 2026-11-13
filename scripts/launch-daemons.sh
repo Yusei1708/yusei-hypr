@@ -40,14 +40,31 @@ if ! pidof swww-daemon >/dev/null 2>&1; then
     done
 else
     echo ":: [Supervisor] swww-daemon is already running."
+    for _ in {1..10}; do
+        if swww query >/dev/null 2>&1; then
+            break
+        fi
+        sleep 0.1
+    done
 fi
 
-# 3. Restore Wallpaper
+# 3. Restore Wallpaper (handle symlink targets BEFORE -f/cat so binary images are never cat'd)
 TARGET_WALL=""
-if [[ -f "$STATE_WALLPAPER" ]] && [[ -s "$STATE_WALLPAPER" ]]; then
-    SAVED_WALL="$(cat "$STATE_WALLPAPER")"
-    if [[ -f "$SAVED_WALL" ]]; then
-        TARGET_WALL="$SAVED_WALL"
+if [[ -L "$STATE_WALLPAPER" ]]; then
+    RESOLVED_WALL="$(readlink -f "$STATE_WALLPAPER" 2>/dev/null || true)"
+    if [[ -n "$RESOLVED_WALL" ]] && [[ -f "$RESOLVED_WALL" ]]; then
+        TARGET_WALL="$RESOLVED_WALL"
+    fi
+elif [[ -f "$STATE_WALLPAPER" ]] && [[ -s "$STATE_WALLPAPER" ]]; then
+    if grep -Iq . "$STATE_WALLPAPER" 2>/dev/null; then
+        SAVED_WALL="$(head -n 1 "$STATE_WALLPAPER" | tr -d '\r\n')"
+        SAVED_WALL="${SAVED_WALL/#\~/$HOME}"
+        if [[ -n "$SAVED_WALL" ]] && [[ -f "$SAVED_WALL" ]]; then
+            TARGET_WALL="$SAVED_WALL"
+        fi
+    else
+        # Regular copied image file stored directly at STATE_WALLPAPER
+        TARGET_WALL="$STATE_WALLPAPER"
     fi
 fi
 
@@ -57,7 +74,8 @@ fi
 
 if [[ -n "$TARGET_WALL" ]] && swww query >/dev/null 2>&1; then
     echo ":: [Supervisor] Applying wallpaper: $TARGET_WALL"
-    swww img "$TARGET_WALL" --transition-type wipe --transition-duration 1.5 2>/dev/null || true
+    swww img "$TARGET_WALL" --transition-type wipe --transition-duration 1.5 2>/dev/null || \
+        swww img "$TARGET_WALL" 2>/dev/null || true
 fi
 
 # 4. Status Bar (Waybar)

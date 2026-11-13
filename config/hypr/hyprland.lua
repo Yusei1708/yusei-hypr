@@ -78,6 +78,51 @@ hl.env("HYPRCURSOR_THEME", "Bibata-Modern-Ice")
 hl.env("HYPRCURSOR_SIZE", "24")
 hl.env("XCURSOR_SIZE", "24")
 
+local function file_exists(path)
+    local f = io.open(path, "r")
+    if f then
+        f:close()
+        return true
+    end
+    return false
+end
+
+local function should_load_nvidia()
+    local hc = io.open(home .. "/.config/hypr/hyprland.conf", "r")
+    if hc then
+        for line in hc:lines() do
+            local clean = line:gsub("#.*$", ""):match("^%s*(.-)%s*$")
+            if clean and clean ~= "" then
+                local src = clean:match("^source%s*=%s*(.+)$")
+                if src and src:match("nvidia%.conf") then
+                    hc:close()
+                    return true
+                end
+            end
+        end
+        hc:close()
+    end
+
+    -- Fallback: auto-enable nvidia.conf only on dedicated NVIDIA GPUs (no i915/amdgpu/xe iGPU)
+    local has_nv = file_exists("/proc/driver/nvidia/version")
+    if not has_nv then
+        return false
+    end
+    for idx = 0, 5 do
+        local uev = io.open("/sys/class/drm/card" .. idx .. "/device/uevent", "r")
+        if uev then
+            local content = uev:read("*a") or ""
+            uev:close()
+            if content:match("DRIVER=i915") or content:match("DRIVER=amdgpu") or content:match("DRIVER=xe") then
+                return false
+            end
+        end
+    end
+    return true
+end
+
+local nvidia_enabled = should_load_nvidia()
+
 -- User ENV Variables Bridge
 local function load_custom_env(filepath)
     local f = io.open(filepath, "r")
@@ -94,6 +139,10 @@ local function load_custom_env(filepath)
     f:close()
 end
 load_custom_env(home .. "/.config/hypr/UserConfigs/ENVariables.conf")
+if nvidia_enabled then
+    load_custom_env(home .. "/.config/hypr/nvidia.conf")
+end
+load_custom_env(home .. "/.config/hypr/userprefs.conf")
 
 --------------------------------------------------------------------------------
 -- 3. MONITORS & DYNAMIC WORKSPACE RULES
@@ -105,7 +154,7 @@ hl.monitor({
     scale    = "1",
 })
 
--- Dynamic Monitors Bridge: loads monitors.conf, Monitors.conf, and LaptopDisplay.conf
+-- Dynamic Monitors Bridge: loads monitors.conf, Monitors.conf, LaptopDisplay.conf, and userprefs.conf
 local function load_custom_monitors(filepath)
     local f = io.open(filepath, "r")
     if not f then return end
@@ -115,17 +164,39 @@ local function load_custom_monitors(filepath)
             local mon_args = clean:match("^monitor%s*=%s*(.+)$")
             if mon_args then
                 local parts = {}
-                for part in mon_args:gmatch("[^,]+") do
+                for part in (mon_args .. ","):gmatch("([^,]*),") do
                     table.insert(parts, part:match("^%s*(.-)%s*$"))
                 end
-                if #parts >= 4 then
-                    local out = parts[1]
-                    local mode = parts[2]
-                    local pos = parts[3]
-                    local sc = parts[4]
-                    pcall(function() hl.monitor({ output = out, mode = mode, position = pos, scale = sc }) end)
-                elseif #parts >= 2 and parts[2] == "disable" then
-                    pcall(function() hl.monitor({ output = parts[1], mode = "disable" }) end)
+                if #parts >= 2 and (parts[2] == "disable" or parts[2] == "disabled") then
+                    pcall(function() hl.monitor({ output = parts[1], disabled = true }) end)
+                elseif #parts >= 4 then
+                    local spec = {
+                        output   = parts[1],
+                        mode     = parts[2],
+                        position = parts[3],
+                        scale    = parts[4],
+                    }
+                    local i = 5
+                    while i + 1 <= #parts do
+                        local opt = parts[i]
+                        local val = parts[i + 1]
+                        if opt == "mirror" and val ~= "" then
+                            spec.mirror = val
+                            i = i + 2
+                        elseif (opt == "bitdepth" or opt == "transform" or opt == "vrr") and tonumber(val) then
+                            spec[opt] = tonumber(val)
+                            i = i + 2
+                        elseif (opt == "sdrbrightness" or opt == "sdrsaturation") and tonumber(val) then
+                            spec[opt] = tonumber(val)
+                            i = i + 2
+                        elseif (opt == "cm" or opt == "icc") and val ~= "" then
+                            spec[opt] = val
+                            i = i + 2
+                        else
+                            i = i + 1
+                        end
+                    end
+                    pcall(function() hl.monitor(spec) end)
                 end
             end
         end
@@ -135,8 +206,39 @@ end
 load_custom_monitors(home .. "/.config/hypr/monitors.conf")
 load_custom_monitors(home .. "/.config/hypr/Monitors.conf")
 load_custom_monitors(home .. "/.config/hypr/UserConfigs/LaptopDisplay.conf")
+load_custom_monitors(home .. "/.config/hypr/userprefs.conf")
 
--- Dynamic Workspace Rules Bridge: loads workspaces.conf and WorkSpaceRules.conf
+local function parse_rule_bool(val)
+    if val == "true" or val == "1" or val == "yes" or val == "on" then
+        return true
+    elseif val == "false" or val == "no" then
+        return false
+    end
+    local lower = val:lower()
+    if lower == "off" or lower == "0" then
+        return false
+    end
+    return nil
+end
+
+local function parse_css_gap(val)
+    local n = tonumber(val)
+    if n then return n end
+    local nums = {}
+    for tok in val:gmatch("%S+") do
+        local t = tonumber(tok)
+        if not t then return nil end
+        table.insert(nums, t)
+    end
+    if #nums == 2 then
+        return { top = nums[1], bottom = nums[1], left = nums[2], right = nums[2] }
+    elseif #nums == 4 then
+        return { top = nums[1], right = nums[2], bottom = nums[3], left = nums[4] }
+    end
+    return nil
+end
+
+-- Dynamic Workspace Rules Bridge: loads workspaces.conf, WorkSpaceRules.conf, and userprefs.conf
 local function load_custom_workspaces(filepath)
     local f = io.open(filepath, "r")
     if not f then return end
@@ -145,11 +247,67 @@ local function load_custom_workspaces(filepath)
         if clean and clean ~= "" then
             local ws_args = clean:match("^workspace%s*=%s*(.+)$")
             if ws_args then
-                local ws_id, rest = ws_args:match("^([^,]+)%s*,%s*(.+)$")
-                if ws_id and rest then
-                    local mon = rest:match("monitor:([^,%s]+)")
-                    if mon then
-                        pcall(function() hl.workspace_rule({ workspace = ws_id, monitor = mon }) end)
+                local parts = {}
+                for part in (ws_args .. ","):gmatch("([^,]*),") do
+                    table.insert(parts, part:match("^%s*(.-)%s*$"))
+                end
+                local ws_id = parts[1]
+                if ws_id and ws_id ~= "" and #parts >= 2 then
+                    local spec = { workspace = ws_id }
+                    local has_opts = false
+                    for i = 2, #parts do
+                        local k, v = parts[i]:match("^([^:]+):(.*)$")
+                        if k and v then
+                            k = k:match("^%s*(.-)%s*$")
+                            v = v:match("^%s*(.-)%s*$")
+                            if k == "monitor" and v ~= "" then
+                                spec.monitor = v
+                                has_opts = true
+                            elseif k == "default" or k == "persistent" or k == "decorate" then
+                                local b = parse_rule_bool(v)
+                                if b ~= nil then spec[k] = b; has_opts = true end
+                            elseif k == "rounding" then
+                                local b = parse_rule_bool(v)
+                                if b ~= nil then spec.no_rounding = not b; has_opts = true end
+                            elseif k == "border" then
+                                local b = parse_rule_bool(v)
+                                if b ~= nil then spec.no_border = not b; has_opts = true end
+                            elseif k == "shadow" then
+                                local b = parse_rule_bool(v)
+                                if b ~= nil then spec.no_shadow = not b; has_opts = true end
+                            elseif k == "gapsin" or k == "gaps_in" then
+                                local g = parse_css_gap(v)
+                                if g ~= nil then spec.gaps_in = g; has_opts = true end
+                            elseif k == "gapsout" or k == "gaps_out" then
+                                local g = parse_css_gap(v)
+                                if g ~= nil then spec.gaps_out = g; has_opts = true end
+                            elseif k == "floatgaps" or k == "float_gaps" then
+                                local g = parse_css_gap(v)
+                                if g ~= nil then spec.float_gaps = g; has_opts = true end
+                            elseif (k == "bordersize" or k == "border_size") and tonumber(v) then
+                                spec.border_size = tonumber(v)
+                                has_opts = true
+                            elseif (k == "on-created-empty" or k == "on_created_empty") and v ~= "" then
+                                spec.on_created_empty = v
+                                has_opts = true
+                            elseif (k == "defaultName" or k == "default_name") and v ~= "" then
+                                spec.default_name = v
+                                has_opts = true
+                            elseif (k == "animation" or k == "layout") and v ~= "" then
+                                spec[k] = v
+                                has_opts = true
+                            elseif k == "layoutopt" then
+                                local lk, lv = v:match("^([^:]+):(.*)$")
+                                if lk and lv then
+                                    spec.layout_opts = spec.layout_opts or {}
+                                    spec.layout_opts[lk] = lv
+                                    has_opts = true
+                                end
+                            end
+                        end
+                    end
+                    if has_opts then
+                        pcall(function() hl.workspace_rule(spec) end)
                     end
                 end
             end
@@ -159,6 +317,7 @@ local function load_custom_workspaces(filepath)
 end
 load_custom_workspaces(home .. "/.config/hypr/workspaces.conf")
 load_custom_workspaces(home .. "/.config/hypr/UserConfigs/WorkSpaceRules.conf")
+load_custom_workspaces(home .. "/.config/hypr/userprefs.conf")
 
 --------------------------------------------------------------------------------
 -- 4. AUTOSTART DAEMONS & SUPERVISOR
@@ -167,28 +326,25 @@ hl.on("hyprland.start", function ()
     -- Environment activation
     hl.exec_cmd("dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP HYPRLAND_INSTANCE_SIGNATURE")
     hl.exec_cmd("systemctl --user import-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP HYPRLAND_INSTANCE_SIGNATURE")
-    
-    -- Core desktop daemons
-    hl.exec_cmd("swww-daemon --format xrgb")
-    hl.exec_cmd("waybar")
-    hl.exec_cmd("swaync")
+
+    -- Singleton core desktop daemons & wallpaper restore
+    hl.exec_cmd("if [ -x '" .. scriptsDir .. "/launch-daemons.sh' ]; then '" .. scriptsDir .. "/launch-daemons.sh'; else pidof swww-daemon >/dev/null 2>&1 || swww-daemon --format xrgb & pidof waybar >/dev/null 2>&1 || waybar & pidof swaync >/dev/null 2>&1 || swaync & pidof hypridle >/dev/null 2>&1 || hypridle & fi")
     hl.exec_cmd("qs -c overview")
     hl.exec_cmd("fcitx5 -d --replace")
-    hl.exec_cmd("hypridle")
     hl.exec_cmd(scriptsDir .. "/Dropterminal.sh kitty &")
     hl.exec_cmd("nm-applet --indicator")
     hl.exec_cmd("blueman-applet")
-    
+
     -- Clipboard manager
     hl.exec_cmd("wl-paste --type text --watch cliphist store")
     hl.exec_cmd("wl-paste --type image --watch cliphist store")
-    
+
     -- Helper scripts
     hl.exec_cmd(scriptsDir .. "/Polkit.sh")
     hl.exec_cmd(scriptsDir .. "/PortalHyprland.sh")
     hl.exec_cmd(scriptsDir .. "/Hyprsunset.sh init")
     hl.exec_cmd(scriptsDir .. "/ChangeLayout.sh init")
-    
+
     -- Laptop Power Optimizer daemon
     hl.exec_cmd("([ -d /sys/class/power_supply/BAT0 ] || ls /sys/class/power_supply/BAT* >/dev/null 2>&1) && " .. scriptsDir .. "/power-optimizer.sh --daemon &")
 
@@ -208,12 +364,13 @@ hl.on("hyprland.start", function ()
         f:close()
     end
     exec_user_startup(home .. "/.config/hypr/UserConfigs/Startup_Apps.conf")
+    exec_user_startup(home .. "/.config/hypr/userprefs.conf")
 end)
 
 -- Dynamic J/K layout cycling and Rainbow Borders re-initialization on config reload
 hl.on("config.reloaded", function()
     hl.exec_cmd(scriptsDir .. "/ChangeLayout.sh init")
-    hl.exec_cmd("([ -f " .. userScripts .. "/RainbowBorders.sh ] && " .. userScripts .. "/RainbowBorders.sh &)")
+    hl.exec_cmd("if [ -f '" .. userScripts .. "/RainbowBorders.sh' ]; then bash '" .. userScripts .. "/RainbowBorders.sh' & elif [ -f '" .. scriptsDir .. "/RainbowBorders.sh' ]; then bash '" .. scriptsDir .. "/RainbowBorders.sh' & fi")
 end)
 
 -- Specialized Scratchpad automatic window spawning (music: spotify, monitor: btop)
@@ -401,7 +558,7 @@ hl.animation({ leaf = "workspaces",     enabled = true, speed = 5,   bezier = "o
 hl.animation({ leaf = "specialWorkspace", enabled = true, speed = 4.5, bezier = "expressive", style = "slidevert" })
 
 -- Dynamic Animation Bridge: Parses animations.conf and UserAnimations.conf if found
-local function load_custom_animations(filepath, depth)
+local function load_custom_animations(filepath, depth, state)
     depth = depth or 0
     if depth > 3 then return end
     local f = io.open(filepath, "r")
@@ -418,7 +575,7 @@ local function load_custom_animations(filepath, depth)
                 elseif src:sub(1, 1) ~= "/" then
                     src = dir .. "/" .. src
                 end
-                load_custom_animations(src, depth + 1)
+                load_custom_animations(src, depth + 1, state)
             else
                 local anim_en = clean:match("^enabled%s*=%s*(%S+)")
                 if anim_en then
@@ -436,13 +593,16 @@ local function load_custom_animations(filepath, depth)
                         local leaf, en, spd, bez, extra = clean:match("^animation%s*=%s*([%w_%-]+)%s*,%s*([%d%a]+)%s*,%s*([%d%.]+)%s*,%s*([%w_%-]+)%s*,?%s*(.*)")
                         if leaf then
                             local style = extra and extra ~= "" and extra:match("^%s*(.-)%s*$") or nil
+                            local is_en = (en == "1" or en == "true" or en == "yes" or en == "on")
+                            if state and leaf == "fadeDpms" then
+                                state.fade_dpms_enabled = is_en
+                            end
                             pcall(function()
                                 local spd_num = tonumber(spd) or 5
-                                if spd_num > 100 then spd_num = 100 end
                                 if spd_num < 0.1 then spd_num = 0.1 end
                                 local def = {
                                     leaf = leaf,
-                                    enabled = (en == "1" or en == "true" or en == "yes" or en == "on"),
+                                    enabled = is_en,
                                     speed = spd_num,
                                     bezier = bez
                                 }
@@ -451,10 +611,17 @@ local function load_custom_animations(filepath, depth)
                             end)
                         else
                             local leaf_dis, en_dis = clean:match("^animation%s*=%s*([%w_%-]+)%s*,%s*(%w+)%s*$")
-                            if leaf_dis and (en_dis == "0" or en_dis == "false" or en_dis == "no" or en_dis == "off") then
-                                pcall(function()
-                                    hl.animation({ leaf = leaf_dis, enabled = false })
-                                end)
+                            if leaf_dis then
+                                local is_dis = (en_dis == "0" or en_dis == "false" or en_dis == "no" or en_dis == "off")
+                                local is_en = (en_dis == "1" or en_dis == "true" or en_dis == "yes" or en_dis == "on")
+                                if state and leaf_dis == "fadeDpms" then
+                                    state.fade_dpms_enabled = not is_dis and is_en or false
+                                end
+                                if is_dis then
+                                    pcall(function()
+                                        hl.animation({ leaf = leaf_dis, enabled = false })
+                                    end)
+                                end
                             end
                         end
                     end
@@ -464,8 +631,15 @@ local function load_custom_animations(filepath, depth)
     end
     f:close()
 end
-load_custom_animations(home .. "/.config/hypr/animations.conf")
-load_custom_animations(home .. "/.config/hypr/UserConfigs/UserAnimations.conf")
+local anim_state = {}
+load_custom_animations(home .. "/.config/hypr/animations.conf", 0, anim_state)
+load_custom_animations(home .. "/.config/hypr/UserConfigs/UserAnimations.conf", 0, {})
+-- Preserve fadeDpms=0 wake stability if animations.conf disabled (or did not enable) fadeDpms
+if anim_state.fade_dpms_enabled ~= true then
+    pcall(function()
+        hl.animation({ leaf = "fadeDpms", enabled = false })
+    end)
+end
 
 --------------------------------------------------------------------------------
 -- 7. KEYBINDINGS
@@ -542,8 +716,9 @@ bindCommand(mainMod .. " + ALT + mouse_down", scriptsDir .. "/ZoomCursor.sh in")
 bindCommand(mainMod .. " + ALT + mouse_up", scriptsDir .. "/ZoomCursor.sh out")
 
 -- Audio, Brightness, Laptop Controls
-hl.bind("ALT_L + SHIFT_L", hl.dsp.exec_cmd(scriptsDir .. "/KeyboardLayout.sh switch"), { locked = true })
-hl.bind("SHIFT_L + ALT_L", hl.dsp.exec_cmd(scriptsDir .. "/Tak0-Per-Window-Switch.sh"), { locked = true })
+hl.bind("ALT_L + SHIFT_L", hl.dsp.exec_cmd(scriptsDir .. "/KeyboardLayout.sh switch"), { locked = true, non_consuming = true, description = "switch keyboard layout globally" })
+hl.bind("SHIFT_L + ALT_L", hl.dsp.exec_cmd(scriptsDir .. "/KeyboardLayout.sh switch"), { locked = true, non_consuming = true, description = "switch keyboard layout globally" })
+hl.bind(mainMod .. " + ALT + K", hl.dsp.exec_cmd(scriptsDir .. "/Tak0-Per-Window-Switch.sh"), { locked = true, description = "switch keyboard layout per-window" })
 hl.bind("XF86AudioRaiseVolume", hl.dsp.exec_cmd(scriptsDir .. "/Volume.sh --inc"), { locked = true, repeating = true })
 hl.bind("XF86AudioLowerVolume", hl.dsp.exec_cmd(scriptsDir .. "/Volume.sh --dec"), { locked = true, repeating = true })
 hl.bind("ALT + XF86AudioRaiseVolume", hl.dsp.exec_cmd(scriptsDir .. "/Volume.sh --inc-precise"), { locked = true, repeating = true })
@@ -603,9 +778,11 @@ hl.bind(mainMod .. " + CTRL + H", hl.dsp.window.move({ out_of_group = true }))
 hl.bind(mainMod .. " + TAB", hl.dsp.focus({ workspace = "m+1" }))
 hl.bind(mainMod .. " + SHIFT + TAB", hl.dsp.focus({ workspace = "m-1" }))
 
--- Scratchpads
-hl.bind(mainMod .. " + Z", hl.dsp.workspace.toggle_special())
-hl.bind(mainMod .. " + SHIFT + Z", hl.dsp.window.move({ workspace = "special" }))
+-- Scratchpads (JaKooLit 'special' on U and Custom 'magic' on Z)
+hl.bind(mainMod .. " + U", hl.dsp.workspace.toggle_special())
+hl.bind(mainMod .. " + SHIFT + U", hl.dsp.window.move({ workspace = "special" }))
+hl.bind(mainMod .. " + Z", hl.dsp.workspace.toggle_special("magic"))
+hl.bind(mainMod .. " + SHIFT + Z", hl.dsp.window.move({ workspace = "special:magic" }))
 hl.bind(mainMod .. " + SHIFT + M", hl.dsp.workspace.toggle_special("music"))
 hl.bind(mainMod .. " + SHIFT + B", hl.dsp.workspace.toggle_special("monitor"))
 
@@ -675,7 +852,7 @@ hl.window_rule({ match = { class = [==[^(org.telegram.desktop|io.github.tdesktop
 hl.window_rule({ match = { class = [==[^(teams-for-linux)$]==] }, tag = [==[+im]==] })
 hl.window_rule({ match = { class = [==[^(im.riot.Riot|Element)$]==] }, tag = [==[+im]==] })
 hl.window_rule({ match = { class = [==[^(gamescope)$]==] }, tag = [==[+games]==] })
-hl.window_rule({ match = { class = [==[^(steam_app_\\d+)$]==] }, tag = [==[+games]==] })
+hl.window_rule({ match = { class = [==[^(steam_app_\d+)$]==] }, tag = [==[+games]==] })
 hl.window_rule({ match = { class = [==[^([Ss]team)$]==] }, tag = [==[+gamestore]==] })
 hl.window_rule({ match = { title = [==[^([Ll]utris)$]==] }, tag = [==[+gamestore]==] })
 hl.window_rule({ match = { class = [==[^(com.heroicgameslauncher.hgl)$]==] }, tag = [==[+gamestore]==] })
@@ -702,9 +879,15 @@ hl.window_rule({ match = { class = [==[^(gnome-system-monitor|org.gnome.SystemMo
 hl.window_rule({ match = { class = [==[^(evince)$]==] }, tag = [==[+viewer]==] })
 hl.window_rule({ match = { class = [==[^(eog|org.gnome.Loupe)$]==] }, tag = [==[+viewer]==] })
 
--- Multimedia specific rules (no blur, 100% opaque for videos)
-hl.window_rule({ match = { tag = [==[multimedia_video]==] }, no_blur = true, opacity = "1.0" })
-hl.window_rule({ match = { tag = [==[multimedia]==] }, no_blur = true, opacity = "1.0" })
+-- Default global opacity baseline (90% across windows; placed BEFORE per-tag overrides)
+hl.window_rule({
+    match = { class = ".*" },
+    opacity = "0.9 override 0.9 override 0.9 override",
+})
+
+-- Multimedia specific rules (no blur, 100% opaque for videos & audio)
+hl.window_rule({ match = { tag = [==[multimedia_video]==] }, no_blur = true, opacity = "1.0 override 1.0 override 1.0 override" })
+hl.window_rule({ match = { tag = [==[multimedia]==] }, no_blur = true, opacity = "1.0 override 1.0 override 1.0 override" })
 
 -- Gaming rules (immediate tearing)
 hl.window_rule({ match = { tag = [==[games]==] }, no_blur = true, immediate = true })
@@ -721,9 +904,9 @@ hl.window_rule({ match = { class = [==[^(mpv|com.github.rafostar.Clapper)$]==] }
 hl.window_rule({ match = { title = [==[^(Authentication Required)$]==] }, float = true, center = true })
 
 -- Specific App Opacities
-hl.window_rule({ match = { tag = [==[browser]==] }, opacity = [==[0.99 0.85]==] })
-hl.window_rule({ match = { tag = [==[projects]==] }, opacity = [==[0.92 0.82]==] })
-hl.window_rule({ match = { tag = [==[terminal]==] }, opacity = [==[0.92 0.75]==] })
+hl.window_rule({ match = { tag = [==[browser]==] }, opacity = [==[0.99 override 0.85 override]==] })
+hl.window_rule({ match = { tag = [==[projects]==] }, opacity = [==[0.92 override 0.82 override]==] })
+hl.window_rule({ match = { tag = [==[terminal]==] }, opacity = [==[0.92 override 0.75 override]==] })
 
 -- Dropdown terminal rule (prevent initial center-screen flash before slide-down)
 hl.window_rule({ match = { class = [==[^(kitty-dropterm)$]==] }, float = true, no_anim = true })
@@ -733,15 +916,121 @@ hl.layer_rule({ match = { namespace = [==[rofi]==] }, blur = true })
 hl.layer_rule({ match = { namespace = [==[notifications]==] }, blur = true })
 hl.layer_rule({ match = { namespace = [==[quickshell:overview]==] }, blur = true, ignore_alpha = 0.5 })
 
--- User's preferred global opacity override (90% uniform transparency across windows)
-hl.window_rule({
-    match = { class = ".*" },
-    opacity = "0.9 override 0.9 override 0.9 override",
-})
+--------------------------------------------------------------------------------
+-- 9. USER OVERRIDES (nvidia.conf / UserDecorations.conf / userprefs.conf / userprefs.lua)
+--------------------------------------------------------------------------------
+local function coerce_setting_value(raw)
+    local v = raw:match("^%s*(.-)%s*$")
+    if v == "" then return nil end
+    if v:find("%$") then
+        local resolved = v:gsub("%$([%w_]+)", function(name)
+            return palette[name] or ("$" .. name)
+        end)
+        if resolved:find("%$") then
+            return nil
+        end
+        v = resolved
+    end
+    local lower = v:lower()
+    if lower == "true" or lower == "yes" or lower == "on" then
+        return true
+    elseif lower == "false" or lower == "no" or lower == "off" then
+        return false
+    end
+    local num = tonumber(v)
+    if num ~= nil then
+        return num
+    end
+    return v
+end
 
---------------------------------------------------------------------------------
--- 9. USER OVERRIDES (userprefs.lua / userprefs.conf)
---------------------------------------------------------------------------------
+local function assign_nested_key(tbl, dotted_key, val)
+    local cur = tbl
+    local parts = {}
+    for seg in dotted_key:gmatch("[^:%.]+") do
+        table.insert(parts, seg)
+    end
+    if #parts == 0 then return end
+    for i = 1, #parts - 1 do
+        local p = parts[i]
+        if type(cur[p]) ~= "table" then
+            cur[p] = {}
+        end
+        cur = cur[p]
+    end
+    cur[parts[#parts]] = val
+end
+
+local function load_custom_settings(filepath)
+    local f = io.open(filepath, "r")
+    if not f then return end
+
+    local stack = {}
+    local skip_directives = {
+        env = true, monitor = true, workspace = true, source = true,
+        exec = true, ["exec-once"] = true, bezier = true, animation = true,
+        bind = true, bindd = true, bindl = true, bindld = true, bindln = true,
+        bindlnd = true, binde = true, binded = true, bindel = true, bindeld = true,
+        bindm = true, bindmd = true, bindr = true, bindrd = true,
+        windowrule = true, windowrulev2 = true, layerrule = true,
+    }
+
+    for line in f:lines() do
+        local clean = line:gsub("#.*$", ""):match("^%s*(.-)%s*$")
+        if clean and clean ~= "" then
+            if clean == "}" then
+                if #stack > 0 then table.remove(stack) end
+            else
+                local open_blk = clean:match("^([%w_%.:%-]+)%s*{$")
+                if open_blk then
+                    table.insert(stack, open_blk)
+                else
+                    local kw_target, kw_val = clean:match("^keyword%s*=%s*([^,]+)%s*,%s*(.+)$")
+                    if not kw_target then
+                        kw_target, kw_val = clean:match("^keyword%s+([%w_]+:[%w_:%.%-]+)%s+(.+)$")
+                    end
+                    if kw_target and kw_val then
+                        local v = coerce_setting_value(kw_val)
+                        if v ~= nil then
+                            local patch = {}
+                            assign_nested_key(patch, kw_target:match("^%s*(.-)%s*$"), v)
+                            pcall(function() hl.config(patch) end)
+                        end
+                    else
+                        local key, raw_val = clean:match("^([^=%s]+)%s*=%s*(.+)$")
+                        if key and raw_val and key:sub(1, 1) ~= "$" and not skip_directives[key] then
+                            local val = coerce_setting_value(raw_val)
+                            if val ~= nil then
+                                if #stack > 0 then
+                                    local patch = {}
+                                    local cur = patch
+                                    for _, blk in ipairs(stack) do
+                                        cur[blk] = cur[blk] or {}
+                                        cur = cur[blk]
+                                    end
+                                    assign_nested_key(cur, key, val)
+                                    pcall(function() hl.config(patch) end)
+                                elseif key:find(":") then
+                                    local patch = {}
+                                    assign_nested_key(patch, key, val)
+                                    pcall(function() hl.config(patch) end)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    f:close()
+end
+
+if nvidia_enabled then
+    load_custom_settings(home .. "/.config/hypr/nvidia.conf")
+end
+load_custom_settings(home .. "/.config/hypr/UserConfigs/UserDecorations.conf")
+load_custom_settings(home .. "/.config/hypr/userprefs.conf")
+
 local user_lua = home .. "/.config/hypr/userprefs.lua"
 local f_lua = io.open(user_lua, "r")
 if f_lua then

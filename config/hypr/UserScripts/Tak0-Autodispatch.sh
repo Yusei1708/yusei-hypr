@@ -33,7 +33,8 @@ fi
 echo "Starting dispatch of '$APP' to workspace $TARGET_WORKSPACE at $(date)" >>"$LOGFILE"
 # Starting the dispatch process and logging the event.
 # Avoid early workspace focus issues by switching workspace first.
-if ! hyprctl dispatch "hl.dsp.workspace('$TARGET_WORKSPACE')" >>"$LOGFILE" 2>&1; then
+safe_ws="${TARGET_WORKSPACE//\'/\\\'}"
+if ! hyprctl dispatch "hl.dsp.focus({ workspace = '$safe_ws' })" >>"$LOGFILE" 2>&1; then
   hyprctl dispatch workspace "$TARGET_WORKSPACE" >>"$LOGFILE" 2>&1 || true
 fi
 sleep 0.4
@@ -48,13 +49,13 @@ echo "Launched '$APP' with PID $pid" >>"$LOGFILE"
 # Wait for the application window to appear (matching window class).
 for i in {1..30}; do
   win=$(hyprctl clients -j | jq -r --arg APP "$APP" '
-        .[] | select(.class | test($APP;"i")) | .address' 2>>"$LOGFILE")
+        first(.[] | select(.class | test($APP;"i")) | .address) // empty' 2>>"$LOGFILE")
 
   if [[ -n "$win" ]]; then
     echo "Found window $win for app '$APP', moving to workspace $TARGET_WORKSPACE" >>"$LOGFILE"
-    # Move the window to the target workspace.
-    if ! hyprctl dispatch "hl.dsp.window.move_to_workspace({ workspace = '$TARGET_WORKSPACE', window = 'address:$win' })" >>"$LOGFILE" 2>&1; then
-      hyprctl dispatch movetoworkspace "$TARGET_WORKSPACE,address:$win" >>"$LOGFILE" 2>&1 || true
+    # Move the window to the target workspace silently.
+    if ! hyprctl dispatch "hl.dsp.window.move({ workspace = '$safe_ws', window = 'address:$win', follow = false })" >>"$LOGFILE" 2>&1; then
+      hyprctl dispatch movetoworkspacesilent "$TARGET_WORKSPACE,address:$win" >>"$LOGFILE" 2>&1 || true
     fi
     exit 0
   fi
