@@ -600,6 +600,7 @@ local function load_custom_animations(filepath, depth, state)
                             pcall(function()
                                 local spd_num = tonumber(spd) or 5
                                 if spd_num < 0.1 then spd_num = 0.1 end
+                                if spd_num > 100 then spd_num = 100 end
                                 local def = {
                                     leaf = leaf,
                                     enabled = is_en,

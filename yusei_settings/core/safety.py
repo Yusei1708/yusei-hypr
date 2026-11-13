@@ -86,6 +86,30 @@ class SafetyEngine:
         return source_p
 
     @staticmethod
+    def _clamp_animation_speeds(content: str) -> str:
+        """Clamps animation speeds above Hyprland's max (100.00) down to 100."""
+        def _replace_speed(match: re.Match) -> str:
+            prefix, speed_str, suffix = match.group(1), match.group(2), match.group(3)
+            try:
+                if float(speed_str) > 100.0:
+                    return f"{prefix}100{suffix}"
+            except ValueError:
+                pass
+            return match.group(0)
+
+        return re.sub(
+            r"^([ \t]*animation[ \t]*=[ \t]*[^,\r\n#]+,[ \t]*[^,\r\n#]+,[ \t]*)([0-9]+(?:\.[0-9]+)?)([^\r\n]*)$",
+            _replace_speed,
+            content,
+            flags=re.MULTILINE,
+        )
+
+    @classmethod
+    def _sanitize_animation_content(cls, content: str) -> str:
+        """Clamps speeds <= 100 and keeps `fadeDpms = 0` enabled-off."""
+        return cls._ensure_fade_dpms_disabled(cls._clamp_animation_speeds(content))
+
+    @staticmethod
     def _ensure_fade_dpms_disabled(content: str) -> str:
         """Ensures `animation = fadeDpms, 0` is present inside an animation config."""
         if re.search(r"^\s*animation\s*=\s*fadeDpms\s*,", content, flags=re.MULTILINE):
@@ -467,7 +491,7 @@ class SafetyEngine:
 
             elif item["action"] == "sync_user_animations":
                 preset_text = source_p.read_text(encoding="utf-8", errors="ignore")
-                target_p.write_text(self._ensure_fade_dpms_disabled(preset_text), encoding="utf-8")
+                target_p.write_text(self._sanitize_animation_content(preset_text), encoding="utf-8")
 
         if is_live_session:
             if canonical_cat in ("waybar_layout", "waybar_style"):
