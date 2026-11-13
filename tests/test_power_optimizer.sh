@@ -49,10 +49,21 @@ MOCK_CONFIG="$MOCK_HOME/.config/hypr"
 MOCK_SYSFS="$TMP_DIR/sysfs"
 mkdir -p "$MOCK_CONFIG" "$MOCK_SYSFS/power_supply" "$MOCK_SYSFS/cpu/cpu0/cpufreq"
 export HOME="$MOCK_HOME"
+export POWER_CONFIG_FILE="$TMP_DIR/default_power.json"
 export POWER_STATE_FILE="$TMP_DIR/power.state"
-trap 'rm -rf "$TMP_DIR"' EXIT
+export POWER_PID_FILE="$TMP_DIR/default.pid"
+TEST_BG_PIDS=()
+cleanup_test_sandbox() {
+    local p
+    for p in "${TEST_BG_PIDS[@]:-}"; do
+        kill "$p" 2>/dev/null || true
+        wait "$p" 2>/dev/null || true
+    done
+    rm -rf "$TMP_DIR"
+}
+trap cleanup_test_sandbox EXIT
 
-TOTAL_TESTS=32
+TOTAL_TESTS=36
 echo "1..${TOTAL_TESTS}"
 
 TEST_INDEX=0
@@ -100,7 +111,7 @@ assert_check "--dry-run --status exits 0 safely" $?
 # 3. JSON Output & Schema Validation
 # ------------------------------------------------------------------------------
 JSON_STATUS="$TMP_DIR/power_status.json"
-bash "$OPTIMIZER_SCRIPT" --status --json --dry-run > "$JSON_STATUS" 2>/dev/null || true
+bash "$OPTIMIZER_SCRIPT" --status --json --dry-run > "$JSON_STATUS" 2>/dev/null
 
 [ -s "$JSON_STATUS" ] && jq empty "$JSON_STATUS" >/dev/null 2>&1
 assert_check "--status --json produces valid JSON parsable by jq" $?
@@ -114,7 +125,7 @@ assert_check "JSON status contains required power and display schema keys" $?
 MOCK_144HZ_JSON='[{"name":"eDP-1","width":1920,"height":1080,"refreshRate":144.002,"x":0,"y":0,"scale":1,"availableModes":["1920x1080@144.00Hz","1920x1080@60.00Hz"]}]'
 
 PARSED_144HZ="$TMP_DIR/parsed_144.json"
-HYPRCTL_MONITORS_DATA="$MOCK_144HZ_JSON" bash "$OPTIMIZER_SCRIPT" --status --json --dry-run > "$PARSED_144HZ" 2>/dev/null || true
+HYPRCTL_MONITORS_DATA="$MOCK_144HZ_JSON" bash "$OPTIMIZER_SCRIPT" --status --json --dry-run > "$PARSED_144HZ" 2>/dev/null
 
 [ -s "$PARSED_144HZ" ] && \
 [ "$(jq -r .monitor_name "$PARSED_144HZ")" = "eDP-1" ] && \
@@ -124,7 +135,7 @@ assert_check "Monitor detection correctly parses primary internal display name a
 
 MOCK_EXT_165HZ='[{"name":"DP-1","width":2560,"height":1440,"refreshRate":165.0,"x":0,"y":0,"scale":1,"availableModes":["2560x1440@165.00Hz","2560x1440@60.00Hz"]}]'
 PARSED_165HZ="$TMP_DIR/parsed_165.json"
-HYPRCTL_MONITORS_DATA="$MOCK_EXT_165HZ" bash "$OPTIMIZER_SCRIPT" --status --json --dry-run > "$PARSED_165HZ" 2>/dev/null || true
+HYPRCTL_MONITORS_DATA="$MOCK_EXT_165HZ" bash "$OPTIMIZER_SCRIPT" --status --json --dry-run > "$PARSED_165HZ" 2>/dev/null
 
 [ -s "$PARSED_165HZ" ] && \
 [ "$(jq -r .monitor_name "$PARSED_165HZ")" = "DP-1" ] && \
@@ -177,7 +188,7 @@ echo "30000000" > "$MOCK_SYSFS/power_supply/BAT0/energy_now"
 MOCK_BAT_STATUS="$TMP_DIR/mock_bat_status.json"
 SYSFS_POWER_DIR="$MOCK_SYSFS/power_supply" \
 HYPRCTL_MONITORS_DATA="$MOCK_144HZ_JSON" \
-bash "$OPTIMIZER_SCRIPT" --status --json --dry-run > "$MOCK_BAT_STATUS" 2>/dev/null || true
+bash "$OPTIMIZER_SCRIPT" --status --json --dry-run > "$MOCK_BAT_STATUS" 2>/dev/null
 
 [ -s "$MOCK_BAT_STATUS" ] && \
 [ "$(jq -r .battery_percent "$MOCK_BAT_STATUS")" = "85" ] && \
@@ -205,7 +216,7 @@ echo "Discharging" > "$MOCK_SYSFS/power_supply/BAT1/status"
 MULTI_BAT_STATUS="$TMP_DIR/multi_bat_status.json"
 SYSFS_POWER_DIR="$MOCK_SYSFS/power_supply" \
 HYPRCTL_MONITORS_DATA="$MOCK_144HZ_JSON" \
-bash "$OPTIMIZER_SCRIPT" --status --json --dry-run > "$MULTI_BAT_STATUS" 2>/dev/null || true
+bash "$OPTIMIZER_SCRIPT" --status --json --dry-run > "$MULTI_BAT_STATUS" 2>/dev/null
 
 [ -s "$MULTI_BAT_STATUS" ] && \
 [ "$(jq -r .battery_percent "$MULTI_BAT_STATUS")" = "60" ] && \
@@ -224,7 +235,7 @@ echo "USB" > "$MOCK_SYSFS/power_supply/ADP1/type"
 AC_MULTI_STATUS="$TMP_DIR/ac_multi_status.json"
 SYSFS_POWER_DIR="$MOCK_SYSFS/power_supply" \
 HYPRCTL_MONITORS_DATA="$MOCK_144HZ_JSON" \
-bash "$OPTIMIZER_SCRIPT" --status --json --dry-run > "$AC_MULTI_STATUS" 2>/dev/null || true
+bash "$OPTIMIZER_SCRIPT" --status --json --dry-run > "$AC_MULTI_STATUS" 2>/dev/null
 
 [ -s "$AC_MULTI_STATUS" ] && \
 [ "$(jq -r .ac_online "$AC_MULTI_STATUS")" = "true" ]
@@ -318,7 +329,7 @@ echo "Discharging" > "$MOCK_SYSFS/power_supply/BAT0/status"
 NEG_BAT_STATUS="$TMP_DIR/neg_bat_status.json"
 SYSFS_POWER_DIR="$MOCK_SYSFS/power_supply" \
 HYPRCTL_MONITORS_DATA="$MOCK_144HZ_JSON" \
-bash "$OPTIMIZER_SCRIPT" --status --json --dry-run > "$NEG_BAT_STATUS" 2>/dev/null || true
+bash "$OPTIMIZER_SCRIPT" --status --json --dry-run > "$NEG_BAT_STATUS" 2>/dev/null
 
 [ -s "$NEG_BAT_STATUS" ] && \
 [ "$(jq -r .power_watts "$NEG_BAT_STATUS")" = "15.0" ] && \
@@ -335,7 +346,7 @@ echo "Charging" > "$MOCK_SYSFS/power_supply/BAT0/status"
 CHG_STATUS="$TMP_DIR/chg_status.json"
 SYSFS_POWER_DIR="$MOCK_SYSFS/power_supply" \
 HYPRCTL_MONITORS_DATA="$MOCK_144HZ_JSON" \
-bash "$OPTIMIZER_SCRIPT" --status --json --dry-run > "$CHG_STATUS" 2>/dev/null || true
+bash "$OPTIMIZER_SCRIPT" --status --json --dry-run > "$CHG_STATUS" 2>/dev/null
 
 [ -s "$CHG_STATUS" ] && \
 [ "$(jq -r .ac_online "$CHG_STATUS")" = "true" ] && \
@@ -359,7 +370,7 @@ echo '{"current_hz": 120, "max_hz": 120}' > "$CACHED_STATE_FILE"
 CACHED_STATUS="$TMP_DIR/cached_status.json"
 HYPRCTL_MONITORS_DATA="none" \
 POWER_STATE_FILE="$CACHED_STATE_FILE" \
-bash "$OPTIMIZER_SCRIPT" --status --json --dry-run > "$CACHED_STATUS" 2>/dev/null || true
+bash "$OPTIMIZER_SCRIPT" --status --json --dry-run > "$CACHED_STATUS" 2>/dev/null
 
 [ -s "$CACHED_STATUS" ] && \
 [ "$(jq -r .current_hz "$CACHED_STATUS")" = "120" ] && \
@@ -403,7 +414,7 @@ EPP_STATUS="$TMP_DIR/epp_status.json"
 PATH="$MOCK_BIN:$PATH" \
 SYSFS_CPU_DIR="$MOCK_SYSFS_CPU" \
 POWER_STATE_FILE="$TMP_DIR/nonexistent.state" \
-bash "$OPTIMIZER_SCRIPT" --status --json --dry-run > "$EPP_STATUS" 2>/dev/null || true
+bash "$OPTIMIZER_SCRIPT" --status --json --dry-run > "$EPP_STATUS" 2>/dev/null
 
 [ -s "$EPP_STATUS" ] && [ "$(jq -r .profile "$EPP_STATUS")" = "balanced" ]
 assert_check "get_current_profile resolves balanced profile from EPP balance_performance when governor is powersave" $?
@@ -418,10 +429,89 @@ echo "powersave" > "$MOCK_SYSFS_CPU/cpufreq/policy0/scaling_governor"
 PATH="$MOCK_BIN:$PATH" \
 SYSFS_CPU_DIR="$MOCK_SYSFS_CPU" \
 POWER_STATE_FILE="$TMP_DIR/dummy.state" \
-bash "$OPTIMIZER_SCRIPT" --set-profile=turbo >/dev/null 2>&1 || true
+bash "$OPTIMIZER_SCRIPT" --set-profile=turbo >/dev/null 2>&1
 
 [ "$(cat "$MOCK_SYSFS_CPU/cpufreq/policy0/energy_performance_preference" 2>/dev/null || true)" = "performance" ]
 assert_check "apply_power_profile writes performance EPP to sysfs cpufreq/policy0 path on powerprofilesctl fallback" $?
+
+# ------------------------------------------------------------------------------
+# 23. Malformed / Non-Numeric Sysfs energy_now & Zero energy_full Guard
+# ------------------------------------------------------------------------------
+MALFORMED_SYSFS="$TMP_DIR/malformed_sysfs"
+mkdir -p "$MALFORMED_SYSFS/BAT0" "$MALFORMED_SYSFS/AC"
+echo "0" > "$MALFORMED_SYSFS/AC/online"
+echo "Mains" > "$MALFORMED_SYSFS/AC/type"
+echo "Battery" > "$MALFORMED_SYSFS/BAT0/type"
+echo "Discharging" > "$MALFORMED_SYSFS/BAT0/status"
+echo "N/A" > "$MALFORMED_SYSFS/BAT0/energy_now"
+echo "0" > "$MALFORMED_SYSFS/BAT0/energy_full"
+echo "bad_watts" > "$MALFORMED_SYSFS/BAT0/power_now"
+
+MALFORMED_JSON="$TMP_DIR/malformed_status.json"
+SYSFS_POWER_DIR="$MALFORMED_SYSFS" \
+HYPRCTL_MONITORS_DATA="$MOCK_144HZ_JSON" \
+bash "$OPTIMIZER_SCRIPT" --status --json --dry-run > "$MALFORMED_JSON" 2>/dev/null
+
+[ -s "$MALFORMED_JSON" ] && jq -e '.has_battery == true and (.battery_percent | type == "number")' "$MALFORMED_JSON" >/dev/null 2>&1
+assert_check "detect_power_status handles non-numeric energy_now and zero energy_full without set -euo pipefail crash" $?
+
+# ------------------------------------------------------------------------------
+# 24. Stale / Wrong-Process PID File Guard
+# ------------------------------------------------------------------------------
+sleep 30 </dev/null >/dev/null 2>&1 &
+UNRELATED_PID=$!
+TEST_BG_PIDS+=("$UNRELATED_PID")
+
+WRONG_PID_FILE="$TMP_DIR/wrong_proc.pid"
+echo "$UNRELATED_PID" > "$WRONG_PID_FILE"
+
+DRY_RUN="true" \
+SYSFS_POWER_DIR="$MOCK_SYSFS/power_supply" \
+POWER_PID_FILE="$WRONG_PID_FILE" \
+TARGET_USERPREFS="$TMP_DIR/empty_userprefs.conf" \
+HYPRCTL_MONITORS_DATA="$MOCK_144HZ_JSON" \
+bash "$OPTIMIZER_SCRIPT" --daemon </dev/null >/dev/null 2>&1 &
+DAEMON_TEST_PID=$!
+TEST_BG_PIDS+=("$DAEMON_TEST_PID")
+
+for _ in $(seq 1 30); do
+    if [ "$(cat "$WRONG_PID_FILE" 2>/dev/null || true)" = "$DAEMON_TEST_PID" ]; then
+        break
+    fi
+    sleep 0.05
+done
+
+[ "$(cat "$WRONG_PID_FILE" 2>/dev/null || true)" = "$DAEMON_TEST_PID" ] && kill -0 "$UNRELATED_PID" 2>/dev/null
+wrong_pid_rc=$?
+
+kill "$DAEMON_TEST_PID" "$UNRELATED_PID" 2>/dev/null || true
+wait "$DAEMON_TEST_PID" "$UNRELATED_PID" 2>/dev/null || true
+assert_check "action_daemon rejects stale PID belonging to unrelated process without killing it" $wrong_pid_rc
+
+# ------------------------------------------------------------------------------
+# 25. power.json Explicit False Booleans (jq // False Bug Regression)
+# ------------------------------------------------------------------------------
+FALSE_POWER_JSON="$TMP_DIR/power_false.json"
+cat <<'EOF' > "$FALSE_POWER_JSON"
+{"power_daemon": false, "auto_60hz": false, "ac_profile": "turbo", "bat_profile": "balanced"}
+EOF
+
+FALSE_STATUS_JSON="$TMP_DIR/power_false_status.json"
+POWER_CONFIG_FILE="$FALSE_POWER_JSON" \
+HYPRCTL_MONITORS_DATA="$MOCK_144HZ_JSON" \
+bash "$OPTIMIZER_SCRIPT" --status --json --dry-run > "$FALSE_STATUS_JSON" 2>/dev/null
+
+ECO_FALSE_AUTO="$(POWER_CONFIG_FILE="$FALSE_POWER_JSON" HYPRCTL_MONITORS_DATA="$MOCK_144HZ_JSON" bash "$OPTIMIZER_SCRIPT" --set-profile=eco --dry-run 2>&1)"
+
+[ -s "$FALSE_STATUS_JSON" ] && \
+[ "$(jq -r '.power_daemon' "$FALSE_STATUS_JSON")" = "false" ] && \
+[ "$(jq -r '.auto_60hz' "$FALSE_STATUS_JSON")" = "false" ] && \
+! grep -q 'hyprctl keyword monitor' <<< "$ECO_FALSE_AUTO"
+assert_check "power.json explicit false booleans (power_daemon: false, auto_60hz: false) are honored cleanly" $?
+
+DAEMON_JSON_DISABLED="$(POWER_CONFIG_FILE="$FALSE_POWER_JSON" SYSFS_POWER_DIR="$MOCK_SYSFS/power_supply" bash "$OPTIMIZER_SCRIPT" --daemon 2>&1)"
+grep -q "bị vô hiệu hóa qua cấu hình" <<< "$DAEMON_JSON_DISABLED"
+assert_check "power.json power_daemon: false disables daemon cleanly without treating false as null" $?
 
 # ------------------------------------------------------------------------------
 # Summary Matrix

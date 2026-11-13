@@ -78,7 +78,7 @@ assert_check "--dry-run exits 0 without writing any files" \
 # 3. JSON Output & Schema Validation
 # ------------------------------------------------------------------------------
 JSON_OUT="$TMP_DIR/hw_detect.json"
-bash "$DETECT_SCRIPT" --json > "$JSON_OUT" 2>/dev/null || true
+bash "$DETECT_SCRIPT" --json > "$JSON_OUT" 2>/dev/null
 
 assert_check "--json produces valid JSON parsable by jq" \
     "[ -s '$JSON_OUT' ] && jq empty '$JSON_OUT' >/dev/null 2>&1"
@@ -100,7 +100,7 @@ chmod +x "$MOCK_BIN/lspci_nvidia"
 
 ln -sf "$MOCK_BIN/lspci_nvidia" "$MOCK_BIN/lspci"
 NVIDIA_JSON="$TMP_DIR/nvidia.json"
-PATH="$MOCK_BIN:$PATH" bash "$DETECT_SCRIPT" --json > "$NVIDIA_JSON" 2>/dev/null || true
+PATH="$MOCK_BIN:$PATH" bash "$DETECT_SCRIPT" --json > "$NVIDIA_JSON" 2>/dev/null
 
 assert_check "Mock lspci NVIDIA detects has_nvidia=true and includes nvidia-dkms packages" \
     "[ -s '$NVIDIA_JSON' ] && [ \"\$(jq -r .has_nvidia '$NVIDIA_JSON')\" = 'true' ] && \
@@ -117,7 +117,7 @@ chmod +x "$MOCK_BIN/lspci_intel"
 
 ln -sf "$MOCK_BIN/lspci_intel" "$MOCK_BIN/lspci"
 INTEL_JSON="$TMP_DIR/intel.json"
-PATH="$MOCK_BIN:$PATH" bash "$DETECT_SCRIPT" --json > "$INTEL_JSON" 2>/dev/null || true
+PATH="$MOCK_BIN:$PATH" bash "$DETECT_SCRIPT" --json > "$INTEL_JSON" 2>/dev/null
 
 assert_check "Mock lspci Intel detects has_nvidia=false" \
     "[ -s '$INTEL_JSON' ] && [ \"\$(jq -r .has_nvidia '$INTEL_JSON')\" = 'false' ]"
@@ -137,7 +137,7 @@ mkdir -p "$MOCK_SYSFS/bus/pci/devices/0000:01:00.0"
 echo "0x10de" > "$MOCK_SYSFS/bus/pci/devices/0000:01:00.0/vendor"
 
 SYSFS_JSON="$TMP_DIR/sysfs_nvidia.json"
-PATH="$MOCK_BIN:$PATH" SYSFS_PCI_DIR="$MOCK_SYSFS/bus/pci/devices" bash "$DETECT_SCRIPT" --json > "$SYSFS_JSON" 2>/dev/null || true
+PATH="$MOCK_BIN:$PATH" SYSFS_PCI_DIR="$MOCK_SYSFS/bus/pci/devices" bash "$DETECT_SCRIPT" --json > "$SYSFS_JSON" 2>/dev/null
 
 assert_check "Sysfs fallback detects NVIDIA PCI vendor ID (0x10de) when lspci returns empty" \
     "[ -s '$SYSFS_JSON' ] && [ \"\$(jq -r .has_nvidia '$SYSFS_JSON')\" = 'true' ] && \
@@ -150,7 +150,7 @@ ln -sf "$MOCK_BIN/lspci_nvidia" "$MOCK_BIN/lspci"
 MOCK_USERPREFS="$TMP_DIR/userprefs_test.conf"
 echo "# Initial userprefs" > "$MOCK_USERPREFS"
 
-PATH="$MOCK_BIN:$PATH" bash "$DETECT_SCRIPT" --inject-userprefs --target-userprefs="$MOCK_USERPREFS" >/dev/null 2>&1 || true
+PATH="$MOCK_BIN:$PATH" bash "$DETECT_SCRIPT" --inject-userprefs --target-userprefs="$MOCK_USERPREFS" >/dev/null 2>&1
 
 assert_check "--inject-userprefs injects Wayland NVIDIA flags (LIBVA, GBM, GLX) when NVIDIA present" \
     "grep -q -E '^[[:space:]]*env[[:space:]]*=[[:space:]]*LIBVA_DRIVER_NAME,nvidia' '$MOCK_USERPREFS' && \
@@ -158,7 +158,7 @@ assert_check "--inject-userprefs injects Wayland NVIDIA flags (LIBVA, GBM, GLX) 
      grep -q -E '^[[:space:]]*env[[:space:]]*=[[:space:]]*__GLX_VENDOR_LIBRARY_NAME,nvidia' '$MOCK_USERPREFS'"
 
 # Re-run injection to verify idempotency
-PATH="$MOCK_BIN:$PATH" bash "$DETECT_SCRIPT" --inject-userprefs --target-userprefs="$MOCK_USERPREFS" >/dev/null 2>&1 || true
+PATH="$MOCK_BIN:$PATH" bash "$DETECT_SCRIPT" --inject-userprefs --target-userprefs="$MOCK_USERPREFS" >/dev/null 2>&1
 OCCURRENCES="$(grep -c -E '^[[:space:]]*env[[:space:]]*=[[:space:]]*LIBVA_DRIVER_NAME,nvidia' "$MOCK_USERPREFS" || true)"
 
 assert_check "--inject-userprefs is idempotent and does not duplicate injected flags" \
@@ -170,7 +170,7 @@ assert_check "--inject-userprefs is idempotent and does not duplicate injected f
 TEMPLATE_USERPREFS="$TMP_DIR/template_userprefs.conf"
 cp "$REPO_ROOT/config/hypr/userprefs.conf" "$TEMPLATE_USERPREFS"
 
-PATH="$MOCK_BIN:$PATH" bash "$DETECT_SCRIPT" --inject-userprefs --target-userprefs="$TEMPLATE_USERPREFS" >/dev/null 2>&1 || true
+PATH="$MOCK_BIN:$PATH" bash "$DETECT_SCRIPT" --inject-userprefs --target-userprefs="$TEMPLATE_USERPREFS" >/dev/null 2>&1
 
 assert_check "--inject-userprefs on default config/hypr/userprefs.conf template appends active NVIDIA flags" \
     "grep -q -E '^[[:space:]]*env[[:space:]]*=[[:space:]]*LIBVA_DRIVER_NAME,nvidia' '$TEMPLATE_USERPREFS' && \
@@ -179,7 +179,7 @@ assert_check "--inject-userprefs on default config/hypr/userprefs.conf template 
      grep -q -E '^[[:space:]]*env[[:space:]]*=[[:space:]]*NVD_BACKEND,direct' '$TEMPLATE_USERPREFS'"
 
 # Re-run injection to verify idempotency on template
-PATH="$MOCK_BIN:$PATH" bash "$DETECT_SCRIPT" --inject-userprefs --target-userprefs="$TEMPLATE_USERPREFS" >/dev/null 2>&1 || true
+PATH="$MOCK_BIN:$PATH" bash "$DETECT_SCRIPT" --inject-userprefs --target-userprefs="$TEMPLATE_USERPREFS" >/dev/null 2>&1
 TEMPLATE_ACTIVE_COUNT="$(grep -c -E '^[[:space:]]*env[[:space:]]*=[[:space:]]*LIBVA_DRIVER_NAME,nvidia' "$TEMPLATE_USERPREFS" || true)"
 
 assert_check "--inject-userprefs on template is idempotent and does not duplicate active flags" \
@@ -190,7 +190,7 @@ MOCK_USERPREFS_INTEL="$TMP_DIR/userprefs_intel.conf"
 echo "# Intel userprefs" > "$MOCK_USERPREFS_INTEL"
 ln -sf "$MOCK_BIN/lspci_intel" "$MOCK_BIN/lspci"
 
-PATH="$MOCK_BIN:$PATH" bash "$DETECT_SCRIPT" --inject-userprefs --target-userprefs="$MOCK_USERPREFS_INTEL" >/dev/null 2>&1 || true
+PATH="$MOCK_BIN:$PATH" bash "$DETECT_SCRIPT" --inject-userprefs --target-userprefs="$MOCK_USERPREFS_INTEL" >/dev/null 2>&1
 
 assert_check "--inject-userprefs does not inject NVIDIA flags when GPU is Intel/AMD" \
     "! grep -q 'LIBVA_DRIVER_NAME' '$MOCK_USERPREFS_INTEL'"
@@ -225,7 +225,7 @@ chmod +x "$MOCK_BIN/pacman_conflict"
 
 ln -sf "$MOCK_BIN/pacman_conflict" "$MOCK_BIN/pacman"
 AUDIO_CONFLICT_JSON="$TMP_DIR/audio_conflict.json"
-PATH="$MOCK_BIN:$PATH" bash "$DETECT_SCRIPT" --json > "$AUDIO_CONFLICT_JSON" 2>/dev/null || true
+PATH="$MOCK_BIN:$PATH" bash "$DETECT_SCRIPT" --json > "$AUDIO_CONFLICT_JSON" 2>/dev/null
 
 assert_check "Audio conflict detection accurately flags pulseaudio package presence" \
     "[ -s '$AUDIO_CONFLICT_JSON' ] && [ \"\$(jq -r .has_pulse_conflict '$AUDIO_CONFLICT_JSON')\" = 'true' ] && \
@@ -240,7 +240,7 @@ chmod +x "$MOCK_BIN/pacman_clean"
 
 ln -sf "$MOCK_BIN/pacman_clean" "$MOCK_BIN/pacman"
 AUDIO_CLEAN_JSON="$TMP_DIR/audio_clean.json"
-PATH="$MOCK_BIN:$PATH" bash "$DETECT_SCRIPT" --json > "$AUDIO_CLEAN_JSON" 2>/dev/null || true
+PATH="$MOCK_BIN:$PATH" bash "$DETECT_SCRIPT" --json > "$AUDIO_CLEAN_JSON" 2>/dev/null
 
 assert_check "Audio conflict detection flags has_pulse_conflict=false when no PulseAudio installed" \
     "[ -s '$AUDIO_CLEAN_JSON' ] && [ \"\$(jq -r .has_pulse_conflict '$AUDIO_CLEAN_JSON')\" = 'false' ]"
@@ -251,7 +251,7 @@ assert_check "Audio conflict detection flags has_pulse_conflict=false when no Pu
 TARGET_ENV="$TMP_DIR/custom_output.env"
 # Remove mock pacman so standard path is restored for env test
 rm -f "$MOCK_BIN/pacman"
-bash "$DETECT_SCRIPT" --env-file="$TARGET_ENV" >/dev/null 2>&1 || true
+bash "$DETECT_SCRIPT" --env-file="$TARGET_ENV" >/dev/null 2>&1
 
 assert_check "--env-file writes complete environment variables (HAS_NVIDIA, IS_LAPTOP, KERNEL_PKG, AUDIO_STACK)" \
     "[ -s '$TARGET_ENV' ] && \
