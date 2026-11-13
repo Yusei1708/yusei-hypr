@@ -396,6 +396,7 @@ hl.animation({ leaf = "windowsMove",    enabled = true, speed = 4,   bezier = "w
 hl.animation({ leaf = "border",         enabled = true, speed = 1,   bezier = "liner" })
 hl.animation({ leaf = "borderangle",    enabled = true, speed = 100, bezier = "liner",     style = "loop" })
 hl.animation({ leaf = "fade",           enabled = true, speed = 3,   bezier = "smoothOut" })
+hl.animation({ leaf = "fadeDpms",       enabled = false })
 hl.animation({ leaf = "workspaces",     enabled = true, speed = 5,   bezier = "overshot",  style = "slide" })
 hl.animation({ leaf = "specialWorkspace", enabled = true, speed = 4.5, bezier = "expressive", style = "slidevert" })
 
@@ -449,8 +450,8 @@ local function load_custom_animations(filepath, depth)
                                 hl.animation(def)
                             end)
                         else
-                            local leaf_dis = clean:match("^animation%s*=%s*([%w_%-]+)%s*,%s*(0|false|no|off)%s*$")
-                            if leaf_dis then
+                            local leaf_dis, en_dis = clean:match("^animation%s*=%s*([%w_%-]+)%s*,%s*(%w+)%s*$")
+                            if leaf_dis and (en_dis == "0" or en_dis == "false" or en_dis == "no" or en_dis == "off") then
                                 pcall(function()
                                     hl.animation({ leaf = leaf_dis, enabled = false })
                                 end)
