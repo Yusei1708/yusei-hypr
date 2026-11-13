@@ -111,7 +111,7 @@ persist_user_decorations() {
         }
 
         if (blur_depth >= 0) {
-            if (code ~ /^[[:space:]]*[^[:space:}#]/) {
+            if (code !~ /^[[:space:]]*(}|$)/) {
                 match(code, /^[[:space:]]*/)
                 child_indent = substr(code, 1, RLENGTH)
             }
