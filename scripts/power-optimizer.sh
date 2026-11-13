@@ -167,7 +167,7 @@ get_config_power_daemon() {
     # 2. Config file
     if [[ -f "$CONFIG_FILE" ]]; then
         local val
-        val="$(jq -r '.power_daemon // empty' "$CONFIG_FILE" 2>/dev/null || true)"
+        val="$(jq -r 'if has("power_daemon") and .power_daemon != null then (.power_daemon | tostring) else empty end' "$CONFIG_FILE" 2>/dev/null || true)"
         if [[ "$val" == "true" || "$val" == "false" ]]; then
             echo "$val"
             return
@@ -207,7 +207,7 @@ get_config_auto_60hz() {
     # 2. Config file
     if [[ -f "$CONFIG_FILE" ]]; then
         local val
-        val="$(jq -r '.auto_60hz // empty' "$CONFIG_FILE" 2>/dev/null || true)"
+        val="$(jq -r 'if has("auto_60hz") and .auto_60hz != null then (.auto_60hz | tostring) else empty end' "$CONFIG_FILE" 2>/dev/null || true)"
         if [[ "$val" == "true" || "$val" == "false" ]]; then
             echo "$val"
             return
@@ -342,6 +342,17 @@ send_notification() {
 # ------------------------------------------------------------------------------
 # Power & Battery Probing (Supports Multi-Battery & Modern USB-C/AC Supplies)
 # ------------------------------------------------------------------------------
+sanitize_uint() {
+    local raw="${1:-}"
+    raw="${raw#-}"
+    raw="$(printf '%s' "$raw" | tr -cd '0-9')"
+    if [[ -z "$raw" ]]; then
+        echo "0"
+    else
+        echo "$((10#$raw))"
+    fi
+}
+
 detect_power_status() {
     HAS_BATTERY=false
     AC_ONLINE=true
@@ -357,14 +368,14 @@ detect_power_status() {
         [[ -d "$ac_path" ]] || continue
         local ptype=""
         if [[ -f "$ac_path/type" ]]; then
-            ptype="$(cat "$ac_path/type" 2>/dev/null || true)"
+            ptype="$(cat "$ac_path/type" 2>/dev/null | tr -d '\r\n' || true)"
         fi
         local bname="$(basename "$ac_path")"
         if [[ "$ptype" == "Mains" || "$ptype" == "USB"* || "$bname" == AC* || "$bname" == ADP* || "$bname" == Mains* ]]; then
             if [[ -f "$ac_path/online" ]]; then
                 ac_found=true
                 local val
-                val="$(cat "$ac_path/online" 2>/dev/null || echo "0")"
+                val="$(cat "$ac_path/online" 2>/dev/null | tr -d '[:space:]' || echo "0")"
                 if [[ "$val" == "1" ]]; then
                     any_ac_online=true
                     break
@@ -397,7 +408,7 @@ detect_power_status() {
 
             local st="Unknown"
             if [[ -f "$bat_path/status" ]]; then
-                st="$(cat "$bat_path/status" 2>/dev/null || echo "Unknown")"
+                st="$(cat "$bat_path/status" 2>/dev/null | tr -d '\r\n' || echo "Unknown")"
             fi
 
             if [[ "$st" == "Charging" ]]; then
@@ -412,56 +423,48 @@ detect_power_status() {
 
             if [[ -f "$bat_path/capacity" ]]; then
                 local cap
-                cap="$(cat "$bat_path/capacity" 2>/dev/null || echo "100")"
+                cap="$(sanitize_uint "$(cat "$bat_path/capacity" 2>/dev/null || echo "100")")"
                 total_pct=$((total_pct + cap))
             fi
 
             if [[ -f "$bat_path/energy_now" ]]; then
                 local en
-                en="$(cat "$bat_path/energy_now" 2>/dev/null || echo "0")"
-                en="${en#-}"
+                en="$(sanitize_uint "$(cat "$bat_path/energy_now" 2>/dev/null || echo "0")")"
                 total_energy_now=$((total_energy_now + en))
             fi
             if [[ -f "$bat_path/energy_full" ]]; then
                 local ef
-                ef="$(cat "$bat_path/energy_full" 2>/dev/null || echo "0")"
-                ef="${ef#-}"
+                ef="$(sanitize_uint "$(cat "$bat_path/energy_full" 2>/dev/null || echo "0")")"
                 total_energy_full=$((total_energy_full + ef))
             fi
 
             if [[ -f "$bat_path/charge_now" ]]; then
                 local cn
-                cn="$(cat "$bat_path/charge_now" 2>/dev/null || echo "0")"
-                cn="${cn#-}"
+                cn="$(sanitize_uint "$(cat "$bat_path/charge_now" 2>/dev/null || echo "0")")"
                 total_charge_now=$((total_charge_now + cn))
             fi
             if [[ -f "$bat_path/charge_full" ]]; then
                 local cf
-                cf="$(cat "$bat_path/charge_full" 2>/dev/null || echo "0")"
-                cf="${cf#-}"
+                cf="$(sanitize_uint "$(cat "$bat_path/charge_full" 2>/dev/null || echo "0")")"
                 total_charge_full=$((total_charge_full + cf))
             fi
 
             # Power draw & Current (strip negative sign if reported by driver)
             if [[ -f "$bat_path/power_now" ]]; then
                 local p_now
-                p_now="$(cat "$bat_path/power_now" 2>/dev/null || echo "0")"
-                p_now="${p_now#-}"
+                p_now="$(sanitize_uint "$(cat "$bat_path/power_now" 2>/dev/null || echo "0")")"
                 total_microwatts=$((total_microwatts + p_now))
             elif [[ -f "$bat_path/current_now" && -f "$bat_path/voltage_now" ]]; then
                 local c_now v_now
-                c_now="$(cat "$bat_path/current_now" 2>/dev/null || echo "0")"
-                v_now="$(cat "$bat_path/voltage_now" 2>/dev/null || echo "0")"
-                c_now="${c_now#-}"
-                v_now="${v_now#-}"
+                c_now="$(sanitize_uint "$(cat "$bat_path/current_now" 2>/dev/null || echo "0")")"
+                v_now="$(sanitize_uint "$(cat "$bat_path/voltage_now" 2>/dev/null || echo "0")")"
                 local uW=$(( (c_now * v_now) / 1000000 ))
                 total_microwatts=$((total_microwatts + uW))
             fi
 
             if [[ -f "$bat_path/current_now" ]]; then
                 local cur_val
-                cur_val="$(cat "$bat_path/current_now" 2>/dev/null || echo "0")"
-                cur_val="${cur_val#-}"
+                cur_val="$(sanitize_uint "$(cat "$bat_path/current_now" 2>/dev/null || echo "0")")"
                 total_current_now=$((total_current_now + cur_val))
             fi
         fi
@@ -593,14 +596,22 @@ detect_monitor() {
             CURRENT_HZ="$(echo "$parsed" | jq -r '.current_hz')"
             MAX_HZ="$(echo "$parsed" | jq -r '.max_hz')"
             MIN_HZ="$(echo "$parsed" | jq -r '.min_hz')"
+            [[ "$CURRENT_HZ" =~ ^[0-9]+$ ]] || CURRENT_HZ=60
+            [[ "$MAX_HZ" =~ ^[0-9]+$ ]] || MAX_HZ=60
+            [[ "$MIN_HZ" =~ ^[0-9]+$ ]] || MIN_HZ=60
         fi
+    fi
+
+    local prefer_state=false
+    if [[ "${POWER_DRY_RUN_PREFER_STATE:-0}" == "1" || "${HYPRCTL_MONITORS_DATA:-}" == "none" ]]; then
+        prefer_state=true
     fi
 
     # Check cached current_hz in state file
     local cached_cur
     cached_cur="$(get_cached_current_hz)"
     if [[ -n "$cached_cur" && "$cached_cur" =~ ^[0-9]+$ ]]; then
-        if [[ -z "$raw_json" || "$raw_json" == "[]" || "$raw_json" == "null" || "$DRY_RUN" = "true" ]]; then
+        if [[ -z "$raw_json" || "$raw_json" == "[]" || "$raw_json" == "null" || ( "$DRY_RUN" = "true" && "$prefer_state" = "true" ) ]]; then
             CURRENT_HZ="$cached_cur"
         fi
     fi
@@ -619,8 +630,13 @@ detect_monitor() {
 # Power Profile Probing & Switching
 # ------------------------------------------------------------------------------
 get_current_profile() {
-    # In dry-run mode, prioritize state file to isolate simulations from host daemons
-    if [[ "$DRY_RUN" = "true" && -f "$STATE_FILE" ]]; then
+    local prefer_state=false
+    if [[ "${POWER_DRY_RUN_PREFER_STATE:-0}" == "1" || "${HYPRCTL_MONITORS_DATA:-}" == "none" ]]; then
+        prefer_state=true
+    fi
+
+    # In dry-run mode, prioritize state file only when sandbox state simulation is requested
+    if [[ "$DRY_RUN" = "true" && "$prefer_state" = "true" && -f "$STATE_FILE" ]]; then
         local st
         st="$(jq -r '.profile // empty' "$STATE_FILE" 2>/dev/null || true)"
         case "$st" in
@@ -1042,21 +1058,29 @@ action_daemon() {
         exit 0
     fi
 
-    # Terminate any stale or duplicate daemon process
+    # Terminate any stale or duplicate daemon process (verify cmdline ownership)
     if [[ -f "$PID_FILE" ]]; then
         local old_pid
         old_pid="$(cat "$PID_FILE" 2>/dev/null || true)"
         if [[ -n "$old_pid" && "$old_pid" =~ ^[0-9]+$ ]] && kill -0 "$old_pid" 2>/dev/null; then
             if [[ "$old_pid" != "$$" ]]; then
-                kill "$old_pid" 2>/dev/null || true
-                sleep 0.2
+                local old_cmd=""
+                if [[ -r "/proc/$old_pid/cmdline" ]]; then
+                    old_cmd="$(tr '\0' ' ' < "/proc/$old_pid/cmdline" 2>/dev/null || true)"
+                fi
+                if [[ "$old_cmd" == *power-optimizer* ]]; then
+                    kill "$old_pid" 2>/dev/null || true
+                    sleep 0.2
+                fi
             fi
         fi
     fi
 
     echo "$$" > "$PID_FILE"
     cleanup_daemon() {
-        rm -f "$PID_FILE"
+        if [[ -f "$PID_FILE" && "$(cat "$PID_FILE" 2>/dev/null || true)" == "$$" ]]; then
+            rm -f "$PID_FILE"
+        fi
         exit 0
     }
     trap cleanup_daemon SIGINT SIGTERM EXIT
