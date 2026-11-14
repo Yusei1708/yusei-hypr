@@ -114,11 +114,11 @@
 	"return-type": "json",
 	"exec": "$HOME/.config/hypr/scripts/Hyprsunset.sh status",
 	"interval": 3,
+	"signal": 8,
 	"format": "{text}",
 	"min-length": 2,
 	"on-click": "$HOME/.config/hypr/scripts/Hyprsunset.sh toggle",
 	"tooltip": true,
-	"tooltip-format": "Night light toggle",
 	"escape": false
 },
 
