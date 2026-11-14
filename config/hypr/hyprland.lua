@@ -960,9 +960,9 @@ hl.window_rule({ match = { tag = [==[wallpaper]==] }, opacity = [==[0.90 overrid
 hl.window_rule({ match = { class = [==[^(kitty-dropterm)$]==] }, float = true, no_anim = true })
 
 -- Layer rules for Waybar, Rofi, SwayNC, and Quickshell overview
-hl.layer_rule({ match = { namespace = "rofi" }, blur = true, ignore_alpha = 0.5, no_anim = true })
 for _, ns in ipairs({
     "waybar",
+    "rofi",
     "swaync-control-center",
     "swaync-notification-window",
     "notifications",

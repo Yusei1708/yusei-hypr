@@ -149,10 +149,11 @@ check_lua_rofi_config() {
     grep -q 'current_path:sub(1, #local_bin + 1)' "$HYPRLAND_LUA"
     grep -q 'bindCommand(mainMod .. " + D", rofiMenu, { release = true })' "$HYPRLAND_LUA"
     grep -q 'bindCommand(mainMod .. " + CTRL + S", "rofi -show window", { release = true })' "$HYPRLAND_LUA"
-    grep -q 'hl.layer_rule({ match = { namespace = "rofi" }, blur = true, ignore_alpha = 0.5, no_anim = true })' "$HYPRLAND_LUA"
+    grep -q '    "rofi",' "$HYPRLAND_LUA"
+    ! grep -qE 'layer_rule\(.*namespace\s*=\s*"rofi".*no_anim\s*=\s*true' "$HYPRLAND_LUA"
 }
 
-assert_check "hyprland.lua passes luac -p and configures release binds, PATH prefix check, and rofi no_anim" \
+assert_check "hyprland.lua passes luac -p and configures release binds, PATH prefix check, and rofi layer blur with animation enabled" \
     "check_lua_rofi_config"
 
 check_conf_files() {
@@ -160,9 +161,10 @@ check_conf_files() {
     grep -qE '^binddr = \$mainMod CTRL, S, window switcher, exec, rofi -show window' "$KEYBINDS_CONF"
     grep -qE '^binddr = \$mainMod, D, app launcher, exec, pkill -x rofi \|\| rofi ' "$LEGACY_KEYBINDS_CONF"
     grep -qE '^binddr = \$mainMod CTRL, S, window switcher, exec, rofi -show window' "$LEGACY_KEYBINDS_CONF"
-    grep -q '^layerrule = match:namespace rofi, no_anim on' "$WINDOW_RULES"
     grep -q '^layerrule = match:namespace rofi, ignore_alpha 0.5' "$WINDOW_RULES"
-    grep -q '^layerrule = match:namespace rofi, no_anim on' "$WINDOW_RULES_V3"
+    ! grep -q '^layerrule = match:namespace rofi, no_anim on' "$WINDOW_RULES"
+    grep -q '^layerrule = match:namespace rofi, ignore_alpha 0.5' "$WINDOW_RULES_V3"
+    ! grep -q '^layerrule = match:namespace rofi, no_anim on' "$WINDOW_RULES_V3"
     ! grep -qE '^[[:space:]]*exec-once[[:space:]]*=[[:space:]]*fcitx5' "$STARTUP_APPS"
 }
 
