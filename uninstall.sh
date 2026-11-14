@@ -699,6 +699,7 @@ cleanup_user_artifacts() {
         "swww"
         "swww-daemon"
         "waybar"
+        "rofi"
         "notify-send"
         "theme-engine.sh"
         "power-optimizer"

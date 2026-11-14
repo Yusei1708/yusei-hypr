@@ -1,0 +1,266 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# yusei-hypr: Rofi Input Method Guard Wrapper
+# ==============================================================================
+# Workaround for Rofi 2.0.0 lacking zwp_text_input_unstable_v3 combined with
+# Hyprland v0.57.1 stale v3 IME grabs: temporarily deactivates active Fcitx5 IM
+# (e.g., Unikey) before mapping Rofi so printable keys forward via virtual
+# keyboard instead of being dropped by commit_string, and safely restores active
+# IM state once the final Rofi instance closes (flock + PID session refcount).
+# ==============================================================================
+
+set -u
+
+resolve_real_rofi() {
+    local self_path="${BASH_SOURCE[0]}"
+    local candidate="${ROFI_REAL_BIN:-}"
+
+    if [[ -n "$candidate" && -x "$candidate" && ! "$candidate" -ef "$self_path" ]]; then
+        printf '%s' "$candidate"
+        return 0
+    fi
+
+    if [[ -x "/usr/bin/rofi" && ! "/usr/bin/rofi" -ef "$self_path" ]]; then
+        printf '%s' "/usr/bin/rofi"
+        return 0
+    fi
+
+    local p dir
+    IFS=':' read -r -a p <<< "${PATH:-/usr/local/bin:/usr/bin:/bin}"
+    for dir in "${p[@]}"; do
+        [[ -z "$dir" ]] && continue
+        candidate="${dir%/}/rofi"
+        if [[ -x "$candidate" && ! "$candidate" -ef "$self_path" ]]; then
+            printf '%s' "$candidate"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+REAL_ROFI="$(resolve_real_rofi || true)"
+if [[ -z "$REAL_ROFI" ]]; then
+    printf '%s\n' "rofi: real rofi binary not found" >&2
+    exit 127
+fi
+
+is_cli_introspection_call() {
+    local arg prev=""
+    for arg in "$@"; do
+        case "$prev" in
+            -p|-mesg|-filter|-theme|-theme-str|-config|-modi|-show|-pid|-display-*|-matching|-dmenu-separator)
+                prev=""
+                continue
+                ;;
+        esac
+        case "$arg" in
+            --)
+                break
+                ;;
+            -h|--help|--help-all|--help-gtk|--help-rofi|-v|-V|-version|--version|-dump-config|-dump-theme|-dump-xresources|-list-keybindings)
+                return 0
+                ;;
+        esac
+        prev="$arg"
+    done
+    return 1
+}
+
+if is_cli_introspection_call "$@"; then
+    exec "$REAL_ROFI" "$@"
+fi
+
+FCITX5_REMOTE_BIN="${FCITX5_REMOTE_BIN:-fcitx5-remote}"
+if ! command -v "$FCITX5_REMOTE_BIN" >/dev/null 2>&1; then
+    exec "$REAL_ROFI" "$@"
+fi
+if ! "$FCITX5_REMOTE_BIN" --check </dev/null >/dev/null 2>&1; then
+    exec "$REAL_ROFI" "$@"
+fi
+
+STATE_DIR="${ROFI_IM_STATE_DIR:-${XDG_RUNTIME_DIR:-/tmp}}"
+mkdir -p "$STATE_DIR" 2>/dev/null || STATE_DIR="/tmp"
+LOCK_FILE="$STATE_DIR/yusei-rofi-im.lock"
+STATE_FILE="$STATE_DIR/yusei-rofi-im.state"
+SESSIONS_DIR="$STATE_DIR/yusei-rofi-im.d"
+RESTORE_DELAY="${ROFI_IM_RESTORE_DELAY:-0.03}"
+SELF_PID="$$"
+SESSION_FILE="$SESSIONS_DIR/$SELF_PID"
+HAVE_FLOCK=0
+if command -v flock >/dev/null 2>&1; then
+    HAVE_FLOCK=1
+fi
+
+acquire_lock() {
+    mkdir -p "$SESSIONS_DIR" 2>/dev/null || return 1
+    exec 9>"$LOCK_FILE" 2>/dev/null || return 1
+    if [[ "$HAVE_FLOCK" -eq 1 ]]; then
+        flock -x 9 2>/dev/null || {
+            exec 9>&-
+            return 1
+        }
+    fi
+    return 0
+}
+
+release_lock() {
+    exec 9>&-
+}
+
+prune_dead_sessions() {
+    local entry pid
+    shopt -s nullglob
+    for entry in "$SESSIONS_DIR"/*; do
+        pid="${entry##*/}"
+        if [[ ! "$pid" =~ ^[0-9]+$ ]] || ! kill -0 "$pid" 2>/dev/null; then
+            rm -f "$entry"
+        fi
+    done
+    shopt -u nullglob
+}
+
+count_live_sessions() {
+    local -a entries=()
+    shopt -s nullglob
+    entries=("$SESSIONS_DIR"/*)
+    shopt -u nullglob
+    printf '%d' "${#entries[@]}"
+}
+
+# State format: "<saved_active:0|1>:<restorer_pid_or_empty>"
+read_state_fields() {
+    local line="" flag="0" restorer=""
+    if [[ -f "$STATE_FILE" ]]; then
+        line="$(head -n 1 "$STATE_FILE" 2>/dev/null || true)"
+        flag="${line%%:*}"
+        if [[ "$line" == *:* ]]; then
+            restorer="${line#*:}"
+        fi
+    fi
+    [[ "$flag" == "1" ]] || flag="0"
+    [[ "$restorer" =~ ^[0-9]+$ ]] || restorer=""
+    printf '%s:%s' "$flag" "$restorer"
+}
+
+save_and_deactivate_im() {
+    if ! acquire_lock; then
+        return 0
+    fi
+
+    prune_dead_sessions
+    local live_count state_pair saved_flag restorer_pid live_state
+    live_count="$(count_live_sessions)"
+    state_pair="$(read_state_fields)"
+    saved_flag="${state_pair%%:*}"
+    restorer_pid="${state_pair#*:}"
+
+    local inherit_state=0
+    if [[ "$live_count" -gt 0 ]]; then
+        inherit_state=1
+    elif [[ -n "$restorer_pid" ]] && kill -0 "$restorer_pid" 2>/dev/null; then
+        # Prior instance is in its brief post-exit restore grace delay; adopt its saved state.
+        inherit_state=1
+    fi
+
+    if [[ "$inherit_state" -eq 1 ]]; then
+        printf '%s:\n' "$saved_flag" > "$STATE_FILE"
+        if [[ "$saved_flag" == "1" ]]; then
+            live_state="$("$FCITX5_REMOTE_BIN" </dev/null 2>/dev/null || true)"
+            if [[ "$live_state" == "2" ]]; then
+                "$FCITX5_REMOTE_BIN" -c </dev/null >/dev/null 2>&1 || true
+            fi
+        fi
+    else
+        live_state="$("$FCITX5_REMOTE_BIN" </dev/null 2>/dev/null || true)"
+        if [[ "$live_state" == "2" ]]; then
+            printf '1:\n' > "$STATE_FILE"
+            "$FCITX5_REMOTE_BIN" -c </dev/null >/dev/null 2>&1 || true
+        else
+            printf '0:\n' > "$STATE_FILE"
+        fi
+    fi
+
+    : > "$SESSION_FILE"
+    release_lock
+}
+
+ROFI_PID=""
+CLEANUP_DONE=0
+SIGNAL_RC=""
+
+cleanup_and_restore() {
+    if [[ "$CLEANUP_DONE" -eq 1 ]]; then
+        return 0
+    fi
+    CLEANUP_DONE=1
+
+    # Disarm redundant signals while reaping child and restoring Fcitx5 cleanly.
+    trap '' TERM INT HUP
+
+    if [[ -n "$ROFI_PID" ]]; then
+        if [[ -n "$SIGNAL_RC" ]] && kill -0 "$ROFI_PID" 2>/dev/null; then
+            kill -TERM "$ROFI_PID" 2>/dev/null || true
+        fi
+        wait "$ROFI_PID" 2>/dev/null || true
+    fi
+
+    if acquire_lock; then
+        rm -f "$SESSION_FILE"
+        prune_dead_sessions
+        local live_count state_pair saved_flag
+        live_count="$(count_live_sessions)"
+        state_pair="$(read_state_fields)"
+        saved_flag="${state_pair%%:*}"
+
+        if [[ "$live_count" -eq 0 ]]; then
+            if [[ "$saved_flag" == "1" ]]; then
+                printf '1:%s\n' "$SELF_PID" > "$STATE_FILE"
+                release_lock
+                sleep "$RESTORE_DELAY" 2>/dev/null || true
+                if acquire_lock; then
+                    prune_dead_sessions
+                    if [[ "$(count_live_sessions)" -eq 0 ]]; then
+                        rm -f "$STATE_FILE"
+                        release_lock
+                        "$FCITX5_REMOTE_BIN" -o </dev/null >/dev/null 2>&1 || true
+                    else
+                        release_lock
+                    fi
+                fi
+            else
+                rm -f "$STATE_FILE"
+                release_lock
+            fi
+        else
+            release_lock
+        fi
+    else
+        rm -f "$SESSION_FILE"
+    fi
+}
+
+on_signal() {
+    local sig_code="$1"
+    SIGNAL_RC="$sig_code"
+    cleanup_and_restore
+    exit "$sig_code"
+}
+
+trap 'on_signal 143' TERM
+trap 'on_signal 130' INT
+trap 'on_signal 129' HUP
+trap 'cleanup_and_restore' EXIT
+
+save_and_deactivate_im
+
+# Duplicate original stdin onto FD 3 so backgrounded child inherits pipeline input
+# while keeping parent shell interruptible by signals and leak-free.
+exec 3<&0
+"$REAL_ROFI" "$@" <&3 3<&- &
+ROFI_PID=$!
+exec 3<&-
+
+CHILD_RC=0
+wait "$ROFI_PID" || CHILD_RC=$?
+exit "$CHILD_RC"

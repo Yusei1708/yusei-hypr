@@ -13,7 +13,7 @@ local userScripts = home .. "/.config/hypr/UserScripts"
 
 local terminal    = "kitty"
 local fileManager = "thunar"
-local rofiMenu    = "pkill rofi || rofi -show drun -modi drun,filebrowser,run,window"
+local rofiMenu    = "pkill -x rofi || rofi -show drun -modi drun,filebrowser,run,window"
 
 -- Palette loader: Reads both Wallust palette and yusei-hypr Material 3 colors.conf
 local palette = {}
@@ -69,7 +69,7 @@ hl.env("GLFW_IM_MODULE", "ibus")
 -- PATH priority: ensure ~/.local/bin is first for wrappers and yusei CLI tools
 local current_path = os.getenv("PATH") or "/usr/local/bin:/usr/bin:/bin"
 local local_bin = home .. "/.local/bin"
-if not current_path:find(local_bin, 1, true) then
+if current_path ~= local_bin and current_path:sub(1, #local_bin + 1) ~= (local_bin .. ":") then
     hl.env("PATH", local_bin .. ":" .. current_path)
 end
 
@@ -654,31 +654,31 @@ end
 -- Core Applications and menus
 bindCommand(mainMod .. " + Return", scriptsDir .. "/Dropterminal.sh kitty")
 bindCommand(mainMod .. " + SHIFT + Return", terminal)
-bindCommand(mainMod .. " + D", rofiMenu)
+bindCommand(mainMod .. " + D", rofiMenu, { release = true })
 bindCommand(mainMod .. " + B", "xdg-open 'https://'")
 bindCommand(mainMod .. " + A", scriptsDir .. "/OverviewToggle.sh")
 bindCommand(mainMod .. " + E", fileManager)
-bindCommand(mainMod .. " + T", scriptsDir .. "/ThemeChanger.sh")
+bindCommand(mainMod .. " + T", scriptsDir .. "/ThemeChanger.sh", { release = true })
 bindCommand(mainMod .. " + H", scriptsDir .. "/KeyHints.sh")
 bindCommand(mainMod .. " + ALT + R", scriptsDir .. "/Refresh.sh")
-bindCommand(mainMod .. " + ALT + E", scriptsDir .. "/RofiEmoji.sh")
-bindCommand(mainMod .. " + S", scriptsDir .. "/RofiSearch.sh")
-bindCommand(mainMod .. " + CTRL + S", "rofi -show window")
+bindCommand(mainMod .. " + ALT + E", scriptsDir .. "/RofiEmoji.sh", { release = true })
+bindCommand(mainMod .. " + S", scriptsDir .. "/RofiSearch.sh", { release = true })
+bindCommand(mainMod .. " + CTRL + S", "rofi -show window", { release = true })
 bindCommand(mainMod .. " + ALT + O", scriptsDir .. "/ChangeBlur.sh")
 bindCommand(mainMod .. " + SHIFT + G", scriptsDir .. "/GameMode.sh")
 bindCommand(mainMod .. " + ALT + L", scriptsDir .. "/ChangeLayout.sh")
-bindCommand(mainMod .. " + ALT + V", scriptsDir .. "/ClipManager.sh")
-bindCommand(mainMod .. " + CTRL + R", scriptsDir .. "/RofiThemeSelector.sh")
-bindCommand(mainMod .. " + CTRL + SHIFT + R", "pkill rofi || true; " .. scriptsDir .. "/RofiThemeSelector-modified.sh")
+bindCommand(mainMod .. " + ALT + V", scriptsDir .. "/ClipManager.sh", { release = true })
+bindCommand(mainMod .. " + CTRL + R", scriptsDir .. "/RofiThemeSelector.sh", { release = true })
+bindCommand(mainMod .. " + CTRL + SHIFT + R", "pkill -x rofi || true; " .. scriptsDir .. "/RofiThemeSelector-modified.sh", { release = true })
 bindCommand(mainMod .. " + SHIFT + Y", "yusei-settings")
 
 -- Media, Wallpapers & Tools
-bindCommand(mainMod .. " + CTRL + M", userScripts .. "/RofiBeats.sh")
-bindCommand(mainMod .. " + SHIFT + O", userScripts .. "/ZshChangeTheme.sh")
-bindCommand(mainMod .. " + W", userScripts .. "/WallpaperSelect.sh")
-bindCommand(mainMod .. " + SHIFT + W", userScripts .. "/WallpaperEffects.sh")
+bindCommand(mainMod .. " + CTRL + M", userScripts .. "/RofiBeats.sh", { release = true })
+bindCommand(mainMod .. " + SHIFT + O", userScripts .. "/ZshChangeTheme.sh", { release = true })
+bindCommand(mainMod .. " + W", userScripts .. "/WallpaperSelect.sh", { release = true })
+bindCommand(mainMod .. " + SHIFT + W", userScripts .. "/WallpaperEffects.sh", { release = true })
 bindCommand("CTRL + ALT + W", userScripts .. "/WallpaperRandom.sh")
-bindCommand(mainMod .. " + ALT + C", userScripts .. "/RofiCalc.sh")
+bindCommand(mainMod .. " + ALT + C", userScripts .. "/RofiCalc.sh", { release = true })
 
 -- Screen Recording & OCR Grabber (v1.5.0 Power Tools)
 bindCommand(mainMod .. " + SHIFT + R", scriptsDir .. "/ScreenRecord.sh --toggle")
@@ -691,13 +691,13 @@ hl.bind(mainMod .. " + CTRL + F", hl.dsp.window.fullscreen({ action = "toggle", 
 hl.bind(mainMod .. " + Space", hl.dsp.window.float({ action = "toggle" }))
 bindCommand(mainMod .. " + ALT + Space", scriptsDir .. "/ToggleAllFloating.sh")
 bindCommand(mainMod .. " + CTRL + ALT + B", "pkill -SIGUSR1 waybar")
-bindCommand(mainMod .. " + CTRL + B", scriptsDir .. "/WaybarStyles.sh")
-bindCommand(mainMod .. " + ALT + B", scriptsDir .. "/WaybarLayout.sh")
+bindCommand(mainMod .. " + CTRL + B", scriptsDir .. "/WaybarStyles.sh", { release = true })
+bindCommand(mainMod .. " + ALT + B", scriptsDir .. "/WaybarLayout.sh", { release = true })
 bindCommand(mainMod .. " + N", scriptsDir .. "/Hyprsunset.sh toggle")
 hl.bind(mainMod .. " + CTRL + O", hl.dsp.window.set_prop({ prop = "opaque", value = "toggle" }))
 bindCommand(mainMod .. " + CTRL + SHIFT + O", scriptsDir .. "/ToggleOpacity.sh")
-bindCommand(mainMod .. " + SHIFT + K", scriptsDir .. "/KeyBinds.sh")
-bindCommand(mainMod .. " + SHIFT + A", scriptsDir .. "/Animations.sh")
+bindCommand(mainMod .. " + SHIFT + K", scriptsDir .. "/KeyBinds.sh", { release = true })
+bindCommand(mainMod .. " + SHIFT + A", scriptsDir .. "/Animations.sh", { release = true })
 
 -- Screenshots
 bindCommand("ALT + Print", scriptsDir .. "/ScreenShot.sh --active")
@@ -750,7 +750,7 @@ bindCommand(mainMod .. " + SHIFT + Q", scriptsDir .. "/KillActiveProcess.sh")
 bindCommand("CTRL + ALT + L", scriptsDir .. "/LockScreen.sh")
 bindCommand("CTRL + ALT + P", scriptsDir .. "/Wlogout.sh")
 bindCommand(mainMod .. " + SHIFT + N", "swaync-client -t -sw")
-bindCommand(mainMod .. " + SHIFT + E", scriptsDir .. "/Kool_Quick_Settings.sh")
+bindCommand(mainMod .. " + SHIFT + E", scriptsDir .. "/Kool_Quick_Settings.sh", { release = true })
 bindCommand(mainMod .. " + SHIFT + P", scriptsDir .. "/power-optimizer.sh --toggle-hz")
 
 -- Layout Dispatches
@@ -960,9 +960,9 @@ hl.window_rule({ match = { tag = [==[wallpaper]==] }, opacity = [==[0.90 overrid
 hl.window_rule({ match = { class = [==[^(kitty-dropterm)$]==] }, float = true, no_anim = true })
 
 -- Layer rules for Waybar, Rofi, SwayNC, and Quickshell overview
+hl.layer_rule({ match = { namespace = "rofi" }, blur = true, ignore_alpha = 0.5, no_anim = true })
 for _, ns in ipairs({
     "waybar",
-    "rofi",
     "swaync-control-center",
     "swaync-notification-window",
     "notifications",
