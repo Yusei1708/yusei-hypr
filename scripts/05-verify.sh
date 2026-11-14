@@ -253,6 +253,25 @@ if [ "$IS_ASUS_ROG" = "true" ]; then
     fi
 fi
 
+# 10. Kiểm tra công cụ tiện ích Desktop (Night Light, Color Picker, Screen Recording, OCR, IPC)
+if command -v hyprsunset &>/dev/null || pacman -Qi hyprsunset &>/dev/null; then
+    report_item "Tiện ích Desktop" "Hyprsunset (Night Light)" "OK" "hyprsunset đã được cài đặt"
+else
+    report_item "Tiện ích Desktop" "Hyprsunset (Night Light)" "WARN" "Thiếu hyprsunset (Super + N sẽ báo Not Installed — chạy: sudo pacman -S hyprsunset)"
+fi
+
+MISSING_RUNTIME_TOOLS=()
+for tool_pkg in hyprpicker wf-recorder tesseract socat; do
+    if ! command -v "$tool_pkg" &>/dev/null && ! pacman -Qi "$tool_pkg" &>/dev/null; then
+        MISSING_RUNTIME_TOOLS+=("$tool_pkg")
+    fi
+done
+if [ ${#MISSING_RUNTIME_TOOLS[@]} -eq 0 ]; then
+    report_item "Tiện ích Desktop" "Công cụ bổ trợ" "OK" "Đã có hyprpicker, wf-recorder, tesseract, socat"
+else
+    report_item "Tiện ích Desktop" "Công cụ bổ trợ" "WARN" "Thiếu: ${MISSING_RUNTIME_TOOLS[*]} (chạy ./scripts/02-packages.sh để cài)"
+fi
+
 echo -e " --------------------------------------------------------------------------------------------------"
 echo -e "\n${BOLD}📊 TỔNG KẾT KIỂM ĐỊNH:${NC}"
 echo -e "   • Tổng số mục kiểm tra: ${BOLD}$TOTAL_CHECKS${NC}"

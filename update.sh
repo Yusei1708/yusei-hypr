@@ -6,11 +6,12 @@
 #   ./update.sh [OPTIONS]
 #
 # Options:
-#   --dry-run       Preview actions without making changes
-#   -y, --yes       Accept prompts non-interactively
-#   --skip-git      Skip Git pull and remote update check
-#   --no-reload     Do not reload Hyprland session
-#   -h, --help      Show help and usage information
+#   --dry-run           Preview actions without making changes
+#   -y, --yes           Accept prompts non-interactively
+#   --skip-git          Skip Git pull and remote update check
+#   --no-reload         Do not reload Hyprland session
+#   --install-packages  Install missing packages from scripts/02-packages.sh
+#   -h, --help          Show help and usage information
 # ==============================================================================
 
 set -euo pipefail
@@ -29,6 +30,7 @@ AUTO_ACCEPT=false
 DRY_RUN=false
 SKIP_GIT=false
 NO_RELOAD=false
+INSTALL_PACKAGES=false
 
 for arg in "$@"; do
     case "$arg" in
@@ -44,17 +46,21 @@ for arg in "$@"; do
         --no-reload)
             NO_RELOAD=true
             ;;
+        --install-packages)
+            INSTALL_PACKAGES=true
+            ;;
         -h|--help)
             echo -e "${CYAN}${BOLD}yusei-hypr: Trình cập nhật và đồng bộ cấu hình hệ thống${NC}"
             echo ""
             echo "Cú pháp: $0 [TÙY CHỌN]"
             echo ""
             echo "Tùy chọn:"
-            echo "  --dry-run       Mô phỏng các bước cập nhật mà không thay đổi hệ thống"
-            echo "  -y, --yes       Tự động xác nhận cập nhật (chế độ non-interactive)"
-            echo "  --skip-git      Bỏ qua bước git pull từ kho lưu trữ từ xa"
-            echo "  --no-reload     Không thực hiện hyprctl reload sau khi cập nhật"
-            echo "  -h, --help      Hiển thị hướng dẫn này và thoát"
+            echo "  --dry-run           Mô phỏng các bước cập nhật mà không thay đổi hệ thống"
+            echo "  -y, --yes           Tự động xác nhận cập nhật (chế độ non-interactive)"
+            echo "  --skip-git          Bỏ qua bước git pull từ kho lưu trữ từ xa"
+            echo "  --no-reload         Không thực hiện hyprctl reload sau khi cập nhật"
+            echo "  --install-packages  Cài bổ sung các gói còn thiếu từ scripts/02-packages.sh"
+            echo "  -h, --help          Hiển thị hướng dẫn này và thoát"
             exit 0
             ;;
         *)
@@ -157,6 +163,32 @@ else
         yusei_enable_hypr_nvidia_conf "$CONFIG_HOME"
         if [[ -x "$DIR/scripts/hardware-detect.sh" ]]; then
             "$DIR/scripts/hardware-detect.sh" --inject-userprefs --target-userprefs="$CONFIG_HOME/hypr/userprefs.conf" || true
+        fi
+    fi
+fi
+
+# Kiểm tra các gói phụ thuộc mới được bổ sung trong scripts/02-packages.sh
+PKG_HELPER="$DIR/scripts/02-packages.sh"
+if [[ -f "$PKG_HELPER" ]] && command -v pacman &>/dev/null; then
+    MISSING_PKGS=()
+    mapfile -t MISSING_PKGS < <(bash "$PKG_HELPER" --list-missing 2>/dev/null || true)
+    if [[ ${#MISSING_PKGS[@]} -gt 0 ]]; then
+        echo -e "\n${YELLOW}⚠️ Phát hiện ${#MISSING_PKGS[@]} gói phụ thuộc còn thiếu (bao gồm tiện ích runtime nếu chưa cài):${NC}"
+        echo -e "${YELLOW}   ${MISSING_PKGS[*]}${NC}"
+        if [ "$DRY_RUN" = "true" ]; then
+            echo -e "${YELLOW}[DRY-RUN] Sẽ kiểm tra/cài đặt các gói còn thiếu bằng $PKG_HELPER.${NC}"
+        elif [ "$INSTALL_PACKAGES" = "true" ]; then
+            echo -e "${BLUE}:: Đang chạy 02-packages.sh để cài bổ sung các gói còn thiếu...${NC}"
+            bash "$PKG_HELPER"
+        elif [ -t 0 ] && [ -t 1 ] && [ "$AUTO_ACCEPT" = "false" ]; then
+            read -rp "Bạn có muốn cài đặt các gói còn thiếu ngay bây giờ? [Y/n]: " INSTALL_CONFIRM
+            if [[ ! "$INSTALL_CONFIRM" =~ ^[nN] ]]; then
+                bash "$PKG_HELPER"
+            else
+                echo -e "${YELLOW}ℹ️ Bỏ qua cài gói. Bạn có thể cài sau bằng: sudo pacman -S --needed ${MISSING_PKGS[*]}${NC}"
+            fi
+        else
+            echo -e "${YELLOW}ℹ️ Bỏ qua cài gói ở chế độ non-interactive. Chạy './update.sh --install-packages' hoặc: sudo pacman -S --needed ${MISSING_PKGS[*]}${NC}"
         fi
     fi
 fi
