@@ -138,6 +138,7 @@ MANDATORY_V15_SCRIPTS=(
     "config/hypr/scripts/SwayncSinglePopup.sh"
     "bin/notify-send"
     "bin/waybar"
+    "bin/rofi"
 )
 TOTAL_V15=${#MANDATORY_V15_SCRIPTS[@]}
 TOTAL_TESTS=$((TOTAL_SH + TOTAL_JSON + TOTAL_JSONC_FIXTURE + TOTAL_V15 + TOTAL_PY + TOTAL_LUA + TOTAL_C))

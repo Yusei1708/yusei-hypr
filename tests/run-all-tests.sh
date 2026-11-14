@@ -47,6 +47,7 @@ SUITES=(
     "Management Scripts|tests/test_management_scripts.sh"
     "Power Optimizer Subsystem|tests/test_power_optimizer.sh"
     "DPMS & Idle/Wake Stability|tests/test_dpms_idle.sh"
+    "Rofi IME & Input Stability|tests/test_rofi_input.sh"
     "yusei_settings Unit Tests|python3 -m unittest discover -s yusei_settings/tests"
 )
 

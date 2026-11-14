@@ -151,6 +151,8 @@ EOF
 echo "existing_hypr=replaced" > "$UNINST_HOME/.config/hypr/current.conf"
 echo "#!/usr/bin/env bash" > "$UNINST_HOME/.local/share/yusei-hypr/bin/waybar"
 ln -sfn "$UNINST_HOME/.local/share/yusei-hypr/bin/waybar" "$UNINST_HOME/.local/bin/waybar"
+echo "#!/usr/bin/env bash" > "$UNINST_HOME/.local/share/yusei-hypr/bin/rofi"
+ln -sfn "$UNINST_HOME/.local/share/yusei-hypr/bin/rofi" "$UNINST_HOME/.local/bin/rofi"
 touch "$UNINST_HOME/.local/lib/libwaybar-hyprland.so"
 echo "[Desktop Entry]" > "$UNINST_HOME/.local/share/applications/yusei-settings.desktop"
 
@@ -227,6 +229,7 @@ run_uninstaller_sandboxed() {
 assert_check "uninstall.sh --dry-run -y exits 0 and leaves sandbox state, bootloader files, and .bashrc untouched" \
     "run_uninstaller_sandboxed --dry-run && \
      [ -e '$UNINST_HOME/.local/bin/waybar' ] && \
+     [ -e '$UNINST_HOME/.local/bin/rofi' ] && \
      grep -q \"alias yay='yay --ignore swww,awww'\" '$UNINST_HOME/.bashrc' && \
      grep -q 'nvidia_drm.modeset=1' '$UNINST_ETC/grub' && \
      [ -f '$UNINST_ETC/modprobe.d/nvidia.conf' ]"
@@ -237,6 +240,7 @@ assert_check "uninstall.sh -y executes in sandbox and exits 0 without invoking s
 assert_check "uninstall.sh -y restores PRE_INSTALL_BACKUP and cleans user bin/lib/desktop/share artifacts" \
     "[ -f '$UNINST_HOME/.config/hypr/pre_install.conf' ] && grep -q 'pre_install_restored=yes' '$UNINST_HOME/.config/hypr/pre_install.conf' && \
      [ ! -e '$UNINST_HOME/.local/bin/waybar' ] && \
+     [ ! -e '$UNINST_HOME/.local/bin/rofi' ] && \
      [ ! -e '$UNINST_HOME/.local/lib/libwaybar-hyprland.so' ] && \
      [ ! -e '$UNINST_HOME/.local/share/applications/yusei-settings.desktop' ] && \
      [ ! -d '$UNINST_HOME/.local/share/yusei-hypr' ]"
