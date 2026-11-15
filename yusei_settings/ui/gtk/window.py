@@ -8,230 +8,33 @@ instant live-filtering search, real-time Hyprland controls, and 5-stage safety r
 import os
 import re
 import sys
-import stat
 import hashlib
 import random
-import tempfile
 import threading
 import subprocess
 from pathlib import Path
 from typing import Optional, Any, List, Tuple, Dict
 
-_DECORATION_OPEN_RE = re.compile(r"^([ \t]*)decoration\s*\{(.*)$")
-_ROUNDING_RE = re.compile(r"^([ \t]*rounding\s*=\s*)(-?\d+(?:\.\d+)?)(.*)$")
-_BLUR_OPEN_RE = re.compile(r"^([ \t]*)blur\s*\{(.*)$")
-_BLUR_ENABLED_RE = re.compile(
-    r"^([ \t]*enabled\s*=\s*)(true|false|yes|no|1|0)\b(.*)$",
-    re.IGNORECASE,
+from yusei_settings.core.decorations import (
+    BLUR_PRESETS,
+    DECORATION_SCHEMA,
+    OPACITY_PRESETS,
+    DecorationsManager,
+    atomic_write_text,
+    format_conf_value,
+    get_default_state,
+    parse_decorations_text,
+    parse_hypr_bool_option,
+    update_decorations_text,
 )
-
-
-def _split_line_comment(line: str) -> Tuple[str, str, str]:
-    """Splits a config line into (code_part, comment_part, newline)."""
-    nl = "\n" if line.endswith("\n") else ""
-    raw = line[:-1] if nl else line
-    if "#" in raw:
-        idx = raw.index("#")
-        return raw[:idx], raw[idx:], nl
-    return raw, "", nl
-
-
-def _atomic_write_text(path: Path, content: str) -> None:
-    """Atomically writes UTF-8 text via temp file in same directory + os.replace."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o644
-    fd, tmp_path = tempfile.mkstemp(
-        prefix=f".{path.name}.",
-        suffix=".tmp",
-        dir=str(path.parent),
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(content)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.chmod(tmp_path, mode)
-        os.replace(tmp_path, path)
-    except Exception:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
 
 
 def _parse_decorations_text(text: str) -> Tuple[Optional[int], Optional[bool]]:
     """Extracts active rounding and blur:enabled from Hyprland decoration config text."""
-    rounding: Optional[int] = None
-    blur_enabled: Optional[bool] = None
-    depth = 0
-    blur_depth: Optional[int] = None
-
-    for line in text.splitlines():
-        code, _comment, _nl = _split_line_comment(line)
-
-        if blur_depth is None:
-            m_round = _ROUNDING_RE.match(code)
-            if m_round:
-                try:
-                    rounding = int(float(m_round.group(2)))
-                except ValueError:
-                    pass
-            m_blur = _BLUR_OPEN_RE.match(code)
-            if m_blur:
-                blur_depth = depth
-                depth += code.count("{") - code.count("}")
-                rest = m_blur.group(2)
-                if depth <= blur_depth:
-                    inside = rest.split("}", 1)[0]
-                    m_en = re.search(
-                        r"\benabled\s*=\s*(true|false|yes|no|1|0)\b",
-                        inside,
-                        re.IGNORECASE,
-                    )
-                    if m_en:
-                        blur_enabled = m_en.group(1).lower() in ("true", "yes", "1")
-                    blur_depth = None
-                continue
-        else:
-            m_en = _BLUR_ENABLED_RE.match(code)
-            if m_en:
-                blur_enabled = m_en.group(2).lower() in ("true", "yes", "1")
-            depth += code.count("{") - code.count("}")
-            if depth <= blur_depth:
-                blur_depth = None
-            continue
-
-        depth += code.count("{") - code.count("}")
-
-    return rounding, blur_enabled
-
-
-def _append_inside_decoration(text: str, inner_lines: List[str]) -> str:
-    """Inserts lines inside the first top-level `decoration { ... }` block or appends a new block."""
-    lines = text.splitlines(keepends=True)
-    depth = 0
-    dec_depth: Optional[int] = None
-    dec_indent = ""
-    child_indent: Optional[str] = None
-
-    for idx, line in enumerate(lines):
-        code, comment, nl = _split_line_comment(line)
-        if dec_depth is None:
-            m_dec = _DECORATION_OPEN_RE.match(code)
-            if m_dec and depth == 0:
-                dec_indent = m_dec.group(1)
-                dec_depth = depth
-                depth += code.count("{") - code.count("}")
-                if depth <= dec_depth:
-                    before_close, close_and_after = m_dec.group(2).split("}", 1)
-                    extra = before_close.strip()
-                    indent = f"{dec_indent}    "
-                    body = "".join(f"{indent}{l}\n" for l in inner_lines)
-                    if extra:
-                        body = f"{indent}{extra}\n{body}"
-                    lines[idx] = f"{dec_indent}decoration {{\n{body}{dec_indent}}}{close_and_after}{comment}{nl}"
-                    return "".join(lines)
-                continue
-            depth += code.count("{") - code.count("}")
-        else:
-            if child_indent is None and code.strip() and not code.lstrip().startswith("}"):
-                child_indent = code[: len(code) - len(code.lstrip())]
-            depth += code.count("{") - code.count("}")
-            if depth <= dec_depth:
-                indent = child_indent or f"{dec_indent}    "
-                inserted = [f"{indent}{l}\n" for l in inner_lines]
-                lines[idx:idx] = inserted
-                return "".join(lines)
-
-    if not text:
-        sep = ""
-    elif text.endswith("\n\n"):
-        sep = ""
-    elif text.endswith("\n"):
-        sep = "\n"
-    else:
-        sep = "\n\n"
-    body = "".join(f"    {l}\n" for l in inner_lines)
-    return f"{text}{sep}decoration {{\n{body}}}\n"
-
-
-def _set_decorations_rounding(text: str, rounding: int) -> str:
-    """Updates an active rounding line in place or adds `rounding = N` inside `decoration { ... }`."""
-    lines = text.splitlines(keepends=True)
-    for idx, line in enumerate(lines):
-        code, comment, nl = _split_line_comment(line)
-        m_round = _ROUNDING_RE.match(code)
-        if m_round:
-            lines[idx] = f"{m_round.group(1)}{int(rounding)}{m_round.group(3)}{comment}{nl}"
-            return "".join(lines)
-
-    return _append_inside_decoration(text, [f"rounding = {int(rounding)}"])
-
-
-def _set_decorations_blur(text: str, enabled: bool) -> str:
-    """Updates `blur { enabled = ... }` in place or adds it inside `decoration { ... }`."""
-    val_str = "true" if enabled else "false"
-    lines = text.splitlines(keepends=True)
-    depth = 0
-    blur_depth: Optional[int] = None
-    blur_start_idx: Optional[int] = None
-    blur_indent = ""
-    child_indent: Optional[str] = None
-
-    for idx, line in enumerate(lines):
-        code, comment, nl = _split_line_comment(line)
-
-        if blur_depth is None:
-            m_blur = _BLUR_OPEN_RE.match(code)
-            if m_blur:
-                blur_indent = m_blur.group(1)
-                blur_depth = depth
-                blur_start_idx = idx
-                depth += code.count("{") - code.count("}")
-                if depth <= blur_depth:
-                    rest = m_blur.group(2)
-                    before_close, close_and_after = rest.split("}", 1)
-                    if re.search(
-                        r"\benabled\s*=\s*(?:true|false|yes|no|1|0)\b",
-                        before_close,
-                        re.IGNORECASE,
-                    ):
-                        updated_inside = re.sub(
-                            r"(\benabled\s*=\s*)(?:true|false|yes|no|1|0)\b",
-                            rf"\g<1>{val_str}",
-                            before_close,
-                            count=1,
-                            flags=re.IGNORECASE,
-                        )
-                        lines[idx] = f"{blur_indent}blur {{{updated_inside}}}{close_and_after}{comment}{nl}"
-                    else:
-                        extra = before_close.strip()
-                        inner_lines = f"{blur_indent}    enabled = {val_str}\n"
-                        if extra:
-                            inner_lines += f"{blur_indent}    {extra}\n"
-                        lines[idx] = (
-                            f"{blur_indent}blur {{\n"
-                            f"{inner_lines}"
-                            f"{blur_indent}}}{close_and_after}{comment}{nl}"
-                        )
-                    return "".join(lines)
-                continue
-            depth += code.count("{") - code.count("}")
-        else:
-            m_en = _BLUR_ENABLED_RE.match(code)
-            if m_en:
-                lines[idx] = f"{m_en.group(1)}{val_str}{m_en.group(3)}{comment}{nl}"
-                return "".join(lines)
-            if child_indent is None and code.strip() and not code.lstrip().startswith("}"):
-                child_indent = code[: len(code) - len(code.lstrip())]
-            depth += code.count("{") - code.count("}")
-            if depth <= blur_depth and blur_start_idx is not None:
-                indent = child_indent or f"{blur_indent}    "
-                lines.insert(blur_start_idx + 1, f"{indent}enabled = {val_str}\n")
-                return "".join(lines)
-
-    return _append_inside_decoration(text, ["blur {", f"    enabled = {val_str}", "}"])
+    parsed = parse_decorations_text(text)
+    rounding = parsed.get("rounding")
+    blur_enabled = parsed.get("blur_enabled")
+    return (int(rounding) if rounding is not None else None), blur_enabled
 
 
 def _update_user_decorations_file(
@@ -239,27 +42,24 @@ def _update_user_decorations_file(
     *,
     rounding: Optional[int] = None,
     blur_enabled: Optional[bool] = None,
+    updates: Optional[Dict[str, Any]] = None,
 ) -> Path:
-    """Persists rounding and/or blur state atomically to UserDecorations.conf under `home`."""
+    """Persists decoration keys atomically to UserDecorations.conf under `home`."""
     user_dec = home / ".config" / "hypr" / "UserConfigs" / "UserDecorations.conf"
     txt = user_dec.read_text(encoding="utf-8", errors="ignore") if user_dec.exists() else ""
+    merged_updates: Dict[str, Any] = dict(updates or {})
     if rounding is not None:
-        txt = _set_decorations_rounding(txt, rounding)
+        merged_updates["rounding"] = int(rounding)
     if blur_enabled is not None:
-        txt = _set_decorations_blur(txt, blur_enabled)
-    _atomic_write_text(user_dec, txt)
+        merged_updates["blur_enabled"] = bool(blur_enabled)
+    txt = update_decorations_text(txt, merged_updates)
+    atomic_write_text(user_dec, txt)
     return user_dec
 
 
 def _parse_hypr_bool_option(out: str) -> Optional[bool]:
     """Parses Hyprland getoption output across 0.57+ (`bool: true/false`) and legacy (`int: 1/0`)."""
-    m_bool = re.search(r"\bbool:\s*(true|false|yes|no|1|0)\b", out, re.IGNORECASE)
-    if m_bool:
-        return m_bool.group(1).lower() in ("true", "yes", "1")
-    m_int = re.search(r"\bint:\s*(\d+)\b", out)
-    if m_int:
-        return int(m_int.group(1)) != 0
-    return None
+    return parse_hypr_bool_option(out)
 
 
 def _apply_hypr_lua_or_keyword(lua_expr: str, keyword: str, value: str) -> None:
@@ -412,6 +212,7 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
             self.state_mgr = StateManager(target_home)
             self.safety = SafetyEngine(target_home)
             self.power_mgr = PowerManager(workspace_root, target_home)
+            self.decorations_mgr = DecorationsManager(workspace_root, target_home)
             self.searchable_rows: List[Tuple[Adw.ExpanderRow, Adw.ActionRow, str]] = []
             self.searchable_wp_cards: List[Tuple[Any, str]] = []
             self.wp_card_map: Dict[str, Tuple[Any, Any, str]] = {}
@@ -425,6 +226,21 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
             self._syncing_hypr_state: bool = False
             self._filter_timeout_id: Optional[int] = None
             self._pre_search_expanded: Optional[Dict[Any, bool]] = None
+            self._dec_state: Dict[str, Any] = get_default_state()
+            self._dec_sliders: Dict[str, Tuple[Any, Any]] = {}
+            self._dec_switches: Dict[str, Any] = {}
+            self._dec_blur_detail_widgets: List[Any] = []
+            self._opacity_preset_btns: List[Tuple[float, Any]] = []
+            self._blur_preset_btns: List[Tuple[int, int, Any]] = []
+            self._dec_link_switch: Optional[Any] = None
+            self._dec_spin_round: Optional[Any] = None
+            self._dec_preview_timer_id: Optional[int] = None
+            self._dec_persist_timer_id: Optional[int] = None
+            self._dec_dirty_persist: bool = False
+            self._dec_apply_lock = threading.Lock()
+            self._dec_pending_work: Optional[Tuple[Dict[str, Any], bool]] = None
+            self._dec_worker_running: bool = False
+            self._active_win: Optional[Any] = None
             self._thumb_cache_dir = self.safety.home / ".cache" / "yusei-settings" / "thumbs"
             try:
                 self._thumb_cache_dir.mkdir(parents=True, exist_ok=True)
@@ -508,63 +324,219 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
             except Exception:
                 pass
 
-        def _get_hypr_decoration_state(self) -> Tuple[int, bool]:
-            """Reads current rounding and blur state from hyprctl (live session) or config."""
-            rounding, blur_enabled = _read_user_decorations_state(self.safety.home)
-            if not self._is_live_session():
-                return rounding, blur_enabled
+        def _sync_dec_ui_from_state(self, state: Dict[str, Any], sync_link_switch: bool = False):
+            """Updates all Hyprland blur/opacity widgets from `state` without firing signals."""
+            self._dec_state = dict(state)
+            self._syncing_hypr_state = True
             try:
-                out = subprocess.check_output(["hyprctl", "getoption", "decoration:rounding"], text=True, timeout=2)
-                m = re.search(r"int:\s*(\d+)", out)
-                if m:
-                    rounding = int(m.group(1))
-            except Exception:
-                pass
-            try:
-                out = subprocess.check_output(["hyprctl", "getoption", "decoration:blur:enabled"], text=True, timeout=2)
-                parsed_blur = _parse_hypr_bool_option(out)
-                if parsed_blur is not None:
-                    blur_enabled = parsed_blur
-            except Exception:
-                pass
-            return rounding, blur_enabled
+                for key, (scale, pill_lbl) in self._dec_sliders.items():
+                    if key in state:
+                        val = state[key]
+                        scale.set_value(float(val))
+                        pill_lbl.set_text(format_conf_value(key, val))
+                for key, sw in self._dec_switches.items():
+                    if key in state:
+                        sw.set_active(bool(state[key]))
+                if self._dec_spin_round is not None and "rounding" in state:
+                    self._dec_spin_round.set_value(int(state["rounding"]))
+                if sync_link_switch and self._dec_link_switch is not None:
+                    same = abs(float(state.get("active_opacity", 0.9)) - float(state.get("inactive_opacity", 0.9))) < 0.005
+                    self._dec_link_switch.set_active(same)
+            finally:
+                self._syncing_hypr_state = False
 
-        def _apply_hypr_rounding(self, spin_btn, win):
+            blur_on = bool(state.get("blur_enabled", True))
+            for widget in self._dec_blur_detail_widgets:
+                widget.set_sensitive(blur_on)
+            self._refresh_dec_preset_highlights()
+
+        def _refresh_dec_preset_highlights(self):
+            act = float(self._dec_state.get("active_opacity", 0.90))
+            inact = float(self._dec_state.get("inactive_opacity", 0.90))
+            linked = bool(self._dec_link_switch.get_active()) if self._dec_link_switch is not None else False
+            for preset_val, btn in self._opacity_preset_btns:
+                is_match = abs(act - preset_val) < 0.005 and (not linked or abs(inact - preset_val) < 0.005)
+                if is_match:
+                    btn.add_css_class("dec-preset-active")
+                else:
+                    btn.remove_css_class("dec-preset-active")
+
+            blur_on = bool(self._dec_state.get("blur_enabled", True))
+            sz = int(self._dec_state.get("blur_size", 5))
+            ps = int(self._dec_state.get("blur_passes", 2))
+            for psz, pps, btn in self._blur_preset_btns:
+                if blur_on and sz == psz and ps == pps:
+                    btn.add_css_class("dec-preset-active")
+                else:
+                    btn.remove_css_class("dec-preset-active")
+
+        def _enqueue_dec_apply(self, snapshot: Dict[str, Any], persist: bool):
+            with self._dec_apply_lock:
+                if self._dec_pending_work is not None:
+                    _prev_snap, prev_persist = self._dec_pending_work
+                    persist = persist or prev_persist
+                self._dec_pending_work = (snapshot, persist)
+                if self._dec_worker_running:
+                    return
+                self._dec_worker_running = True
+
+            def _worker():
+                while True:
+                    with self._dec_apply_lock:
+                        work = self._dec_pending_work
+                        self._dec_pending_work = None
+                        if work is None:
+                            self._dec_worker_running = False
+                            return
+                    snap, do_persist = work
+                    try:
+                        self.decorations_mgr.apply(snap, persist=do_persist, live=True)
+                    except Exception as exc:
+                        err = str(exc)
+                        GLib.idle_add(
+                            lambda m=err: (
+                                self._show_error(self._active_win, "Lỗi cập nhật hiệu ứng mờ nền", m),
+                                GLib.SOURCE_REMOVE,
+                            )[1]
+                        )
+
+            threading.Thread(target=_worker, daemon=True).start()
+
+        def _cancel_dec_timers(self):
+            if self._dec_preview_timer_id is not None:
+                GLib.source_remove(self._dec_preview_timer_id)
+                self._dec_preview_timer_id = None
+            if self._dec_persist_timer_id is not None:
+                GLib.source_remove(self._dec_persist_timer_id)
+                self._dec_persist_timer_id = None
+
+        def _schedule_dec_apply(self, *, immediate_persist: bool = False):
+            """Coalesces rapid slider drags into 45ms live previews and 260ms atomic saves."""
+            if immediate_persist:
+                self._cancel_dec_timers()
+                self._dec_dirty_persist = False
+                self._enqueue_dec_apply(dict(self._dec_state), persist=True)
+                return
+
+            self._dec_dirty_persist = True
+            if self._dec_preview_timer_id is not None:
+                GLib.source_remove(self._dec_preview_timer_id)
+            if self._dec_persist_timer_id is not None:
+                GLib.source_remove(self._dec_persist_timer_id)
+
+            def _on_preview():
+                self._dec_preview_timer_id = None
+                self._enqueue_dec_apply(dict(self._dec_state), persist=False)
+                return GLib.SOURCE_REMOVE
+
+            def _on_persist():
+                self._dec_persist_timer_id = None
+                self._dec_dirty_persist = False
+                self._enqueue_dec_apply(dict(self._dec_state), persist=True)
+                return GLib.SOURCE_REMOVE
+
+            self._dec_preview_timer_id = GLib.timeout_add(45, _on_preview)
+            self._dec_persist_timer_id = GLib.timeout_add(260, _on_persist)
+
+        def _on_dec_slider_changed(self, scale, key: str, pill_lbl):
             if self._syncing_hypr_state:
                 return
-            val = int(spin_btn.get_value())
-            if self._is_live_session():
-                _apply_hypr_lua_or_keyword(
-                    f"hl.config({{ decoration = {{ rounding = {val} }} }})",
-                    "decoration:rounding",
-                    str(val),
-                )
-            try:
-                _update_user_decorations_file(self.safety.home, rounding=val)
-            except Exception as exc:
-                self._show_error(win, "Lỗi lưu bo góc", str(exc))
+            spec = DECORATION_SCHEMA[key]
+            ftype, mn, mx, _step, dec = spec[0], spec[1], spec[2], spec[3], spec[4]
+            raw = scale.get_value()
+            if ftype is int:
+                val: Any = int(max(mn, min(mx, round(raw))))
+            else:
+                val = round(max(float(mn), min(float(mx), float(raw))), dec)
 
-        def _apply_hypr_blur(self, switch_row, _pspec, win):
+            self._dec_state[key] = val
+            pill_lbl.set_text(format_conf_value(key, val))
+
+            if key == "active_opacity" and self._dec_link_switch is not None and self._dec_link_switch.get_active():
+                self._dec_state["inactive_opacity"] = val
+                pair = self._dec_sliders.get("inactive_opacity")
+                if pair is not None:
+                    in_scale, in_lbl = pair
+                    self._syncing_hypr_state = True
+                    try:
+                        in_scale.set_value(float(val))
+                        in_lbl.set_text(format_conf_value("inactive_opacity", val))
+                    finally:
+                        self._syncing_hypr_state = False
+
+            self._refresh_dec_preset_highlights()
+            self._schedule_dec_apply(immediate_persist=False)
+
+        def _on_dec_switch_toggled(self, switch_row, _pspec, key: str, win):
             if self._syncing_hypr_state:
                 return
             active = bool(switch_row.get_active())
-            val_str = "true" if active else "false"
-            if self._is_live_session():
-                _apply_hypr_lua_or_keyword(
-                    f"hl.config({{ decoration = {{ blur = {{ enabled = {val_str} }} }} }})",
-                    "decoration:blur:enabled",
-                    val_str,
+            self._dec_state[key] = active
+            if key == "blur_enabled":
+                for widget in self._dec_blur_detail_widgets:
+                    widget.set_sensitive(active)
+                self._refresh_dec_preset_highlights()
+                self._show_toast(
+                    win,
+                    f"Đã {'bật' if active else 'tắt'} hiệu ứng làm mờ nền (Blur)",
+                    timeout=2,
                 )
-            try:
-                _update_user_decorations_file(self.safety.home, blur_enabled=active)
-            except Exception as exc:
-                self._show_error(win, "Lỗi lưu hiệu ứng làm mờ", str(exc))
+            elif key == "override_all_apps":
+                self._show_toast(
+                    win,
+                    "Đang ghi đè opacity lên toàn bộ cửa sổ (kể cả video)" if active else "Đã chuyển về opacity riêng theo từng app",
+                    timeout=2,
+                )
+            self._schedule_dec_apply(immediate_persist=True)
+
+        def _on_opacity_link_toggled(self, switch_row, _pspec):
+            if self._syncing_hypr_state:
                 return
-            self._show_toast(
-                win,
-                f"Đã {'bật' if active else 'tắt'} hiệu ứng làm mờ nền (Blur)",
-                timeout=2,
-            )
+            if switch_row.get_active():
+                act_val = self._dec_state.get("active_opacity", 0.90)
+                if abs(float(self._dec_state.get("inactive_opacity", 0.90)) - float(act_val)) >= 0.005:
+                    self._dec_state["inactive_opacity"] = act_val
+                    pair = self._dec_sliders.get("inactive_opacity")
+                    if pair is not None:
+                        in_scale, in_lbl = pair
+                        self._syncing_hypr_state = True
+                        try:
+                            in_scale.set_value(float(act_val))
+                            in_lbl.set_text(format_conf_value("inactive_opacity", act_val))
+                        finally:
+                            self._syncing_hypr_state = False
+                    self._schedule_dec_apply(immediate_persist=True)
+            self._refresh_dec_preset_highlights()
+
+        def _on_opacity_preset_clicked(self, _btn, val: float, win):
+            next_state = dict(self._dec_state)
+            next_state["active_opacity"] = round(float(val), 2)
+            if self._dec_link_switch is not None and self._dec_link_switch.get_active():
+                next_state["inactive_opacity"] = round(float(val), 2)
+            self._sync_dec_ui_from_state(next_state)
+            self._schedule_dec_apply(immediate_persist=True)
+            self._show_toast(win, f"Đã đặt độ trong suốt nền: {val:.2f}", timeout=2)
+
+        def _on_blur_preset_clicked(self, _btn, size_val: int, passes_val: int, label: str, win):
+            next_state = dict(self._dec_state)
+            next_state["blur_enabled"] = True
+            next_state["blur_size"] = int(size_val)
+            next_state["blur_passes"] = int(passes_val)
+            self._sync_dec_ui_from_state(next_state)
+            self._schedule_dec_apply(immediate_persist=True)
+            self._show_toast(win, f"Đã chọn cấu hình Blur: {label}", timeout=2)
+
+        def _on_reset_decorations_clicked(self, _btn, win):
+            defaults = get_default_state()
+            self._sync_dec_ui_from_state(defaults, sync_link_switch=True)
+            self._schedule_dec_apply(immediate_persist=True)
+            self._show_toast(win, "Đã khôi phục mặc định hiệu ứng mờ nền & bo góc", timeout=2)
+
+        def _on_hypr_rounding_changed(self, spin_btn):
+            if self._syncing_hypr_state:
+                return
+            self._dec_state["rounding"] = int(spin_btn.get_value())
+            self._schedule_dec_apply(immediate_persist=True)
 
         def _install_custom_css(self):
             css_provider = Gtk.CssProvider()
@@ -642,6 +614,26 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
                 font-size: 11px;
                 color: #9aa0b0;
                 margin-top: 2px;
+            }
+            .dec-value-pill {
+                background-color: rgba(168, 199, 250, 0.14);
+                color: #a8c7fa;
+                font-family: monospace;
+                font-size: 12px;
+                font-weight: 700;
+                padding: 4px 10px;
+                border-radius: 999px;
+                border: 1px solid rgba(168, 199, 250, 0.28);
+            }
+            .dec-preset-btn {
+                border-radius: 8px;
+                padding: 4px 10px;
+                font-size: 12px;
+                font-weight: 600;
+            }
+            .dec-preset-active {
+                background-color: #a8c7fa;
+                color: #042f65;
             }
             """
             try:
@@ -730,12 +722,18 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
                 GLib.source_remove(self._filter_timeout_id)
                 self._filter_timeout_id = None
             self._pre_search_expanded = None
+            self._active_win = win
             self.searchable_rows.clear()
             self.searchable_wp_cards.clear()
             self.wp_card_map.clear()
             self.category_cards.clear()
             self.category_expanders.clear()
             self.lazy_section_builders.clear()
+            self._dec_sliders.clear()
+            self._dec_switches.clear()
+            self._dec_blur_detail_widgets.clear()
+            self._opacity_preset_btns.clear()
+            self._blur_preset_btns.clear()
             win.connect("close-request", self._on_window_close_request)
 
             # -----------------------------------------------------------------
@@ -908,36 +906,232 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
             win.add(page_appearance)
 
             # -----------------------------------------------------------------
-            # PAGE 2: Hyprland (Animations & Effects)
+            # PAGE 2: Hyprland (Blur, Opacity & Animations)
             # -----------------------------------------------------------------
             page_hyprland = Adw.PreferencesPage(
                 title="Hyprland",
                 icon_name="preferences-system-windows-symbolic"
             )
 
-            group_hypr = Adw.PreferencesGroup(
-                title=esc("Hiệu Ứng & Bo Góc Cửa Sổ"),
-                description=esc("Thay đổi có hiệu lực ngay lập tức trên phiên Hyprland hiện tại")
-            )
-            row_round = Adw.ActionRow(
-                title=esc("Bo góc cửa sổ (Rounding)"),
-                subtitle=esc("Điều chỉnh bán kính bo tròn góc cửa sổ (0px - 30px)")
-            )
-            spin_round = Gtk.SpinButton.new_with_range(0, 30, 1)
-            spin_round.set_value(16)
-            spin_round.set_valign(Gtk.Align.CENTER)
-            spin_round.connect("value-changed", self._apply_hypr_rounding, win)
-            row_round.add_suffix(spin_round)
-            group_hypr.add(row_round)
+            def add_dec_slider_row(
+                target_group: Adw.PreferencesGroup,
+                key: str,
+                title: str,
+                subtitle: str,
+                marks: Optional[List[float]] = None,
+                is_blur_detail: bool = False,
+            ) -> Adw.ActionRow:
+                spec = DECORATION_SCHEMA[key]
+                mn, mx, step, dec, default_val = spec[1], spec[2], spec[3], spec[4], spec[8]
+                row = Adw.ActionRow(title=esc(title), subtitle=esc(subtitle))
+                box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+                box.set_valign(Gtk.Align.CENTER)
 
-            row_blur = Adw.SwitchRow(
-                title=esc("Làm mờ nền (Dual-pass Kawase Blur)"),
-                subtitle=esc("Hiệu ứng kính mờ trong suốt phía sau cửa sổ"),
+                scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, float(mn), float(mx), float(step))
+                scale.set_size_request(230, -1)
+                scale.set_valign(Gtk.Align.CENTER)
+                scale.set_draw_value(False)
+                scale.set_digits(dec)
+                scale.set_round_digits(dec)
+                scale.set_value(float(default_val))
+                if marks:
+                    for mv in marks:
+                        scale.add_mark(float(mv), Gtk.PositionType.BOTTOM, None)
+
+                pill = Gtk.Label(label=format_conf_value(key, default_val))
+                pill.set_width_chars(6)
+                pill.set_xalign(0.5)
+                pill.add_css_class("dec-value-pill")
+
+                scale.connect("value-changed", lambda sc, k=key, pl=pill: self._on_dec_slider_changed(sc, k, pl))
+                box.append(scale)
+                box.append(pill)
+                row.add_suffix(box)
+                target_group.add(row)
+                self._dec_sliders[key] = (scale, pill)
+                if is_blur_detail:
+                    self._dec_blur_detail_widgets.append(row)
+                return row
+
+            group_glass = Adw.PreferencesGroup(
+                title=esc("Độ Trong Suốt & Kính Mờ (Frosted Glass)"),
+                description=esc("Kéo thanh trượt để chỉnh độ trong suốt nền cửa sổ linh hoạt (0.80, 0.90, 1.00...)")
+            )
+            btn_reset_dec = Gtk.Button(label="Khôi phục mặc định")
+            btn_reset_dec.set_valign(Gtk.Align.CENTER)
+            btn_reset_dec.connect("clicked", self._on_reset_decorations_clicked, win)
+            group_glass.set_header_suffix(btn_reset_dec)
+
+            row_op_presets = Adw.ActionRow(
+                title=esc("Mức độ mờ nhanh (Quick Presets)"),
+                subtitle=esc("Chọn nhanh độ trong suốt nền phổ biến hoặc kéo thanh trượt bên dưới")
+            )
+            op_preset_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            op_preset_box.set_valign(Gtk.Align.CENTER)
+            for p_item in OPACITY_PRESETS:
+                pv = float(p_item["value"])
+                pbtn = Gtk.Button(label=f"{pv:.2f}")
+                pbtn.set_tooltip_text(p_item["label"])
+                pbtn.add_css_class("dec-preset-btn")
+                pbtn.connect("clicked", self._on_opacity_preset_clicked, pv, win)
+                op_preset_box.append(pbtn)
+                self._opacity_preset_btns.append((pv, pbtn))
+            row_op_presets.add_suffix(op_preset_box)
+            group_glass.add(row_op_presets)
+
+            row_link_opacity = Adw.SwitchRow(
+                title=esc("Đồng bộ Inactive theo Active"),
+                subtitle=esc("Tự động giữ cửa sổ nền không focus cùng độ mờ với cửa sổ đang chọn"),
                 active=True
             )
-            row_blur.connect("notify::active", self._apply_hypr_blur, win)
-            group_hypr.add(row_blur)
-            page_hyprland.add(group_hypr)
+            row_link_opacity.connect("notify::active", self._on_opacity_link_toggled)
+            self._dec_link_switch = row_link_opacity
+            group_glass.add(row_link_opacity)
+
+            add_dec_slider_row(
+                group_glass,
+                "active_opacity",
+                "Độ trong suốt cửa sổ Active (0.30 – 1.00)",
+                "Độ đục của cửa sổ đang sử dụng (0.80 = kính mờ rõ, 0.90 = mặc định, 1.00 = đặc)",
+                marks=[0.50, 0.80, 0.90, 1.00],
+            )
+            add_dec_slider_row(
+                group_glass,
+                "inactive_opacity",
+                "Độ trong suốt cửa sổ Inactive (0.30 – 1.00)",
+                "Độ đục của các cửa sổ nền phía sau",
+                marks=[0.50, 0.80, 0.90, 1.00],
+            )
+            add_dec_slider_row(
+                group_glass,
+                "fullscreen_opacity",
+                "Độ trong suốt toàn màn hình (Fullscreen)",
+                "Độ đục khi ứng dụng chạy chế độ toàn màn hình (1.00 giữ ảnh sắc nét)",
+                marks=[0.80, 0.90, 1.00],
+            )
+
+            row_override_all = Adw.SwitchRow(
+                title=esc("Ghi đè toàn bộ ứng dụng (kể cả Video/Media)"),
+                subtitle=esc("Áp dụng đồng bộ độ mờ cho mọi app như Antigravity, Terminal, Browser và Video"),
+                active=True
+            )
+            row_override_all.connect("notify::active", self._on_dec_switch_toggled, "override_all_apps", win)
+            self._dec_switches["override_all_apps"] = row_override_all
+            group_glass.add(row_override_all)
+            page_hyprland.add(group_glass)
+
+            group_blur = Adw.PreferencesGroup(
+                title=esc("Làm Mờ Nền (Dual-pass Kawase Blur) & Bo Góc"),
+                description=esc("Tinh chỉnh bán kính mờ, số lớp lọc, độ sáng và độ rực màu xuyên kính")
+            )
+            row_blur = Adw.SwitchRow(
+                title=esc("Bật hiệu ứng làm mờ nền (Dual-pass Kawase Blur)"),
+                subtitle=esc("Hiệu ứng kính mờ phía sau cửa sổ, Rofi, Waybar và SwayNC"),
+                active=True
+            )
+            row_blur.connect("notify::active", self._on_dec_switch_toggled, "blur_enabled", win)
+            self._dec_switches["blur_enabled"] = row_blur
+            group_blur.add(row_blur)
+
+            row_blur_presets = Adw.ActionRow(
+                title=esc("Cường độ Blur nhanh"),
+                subtitle=esc("Áp dụng nhanh cặp Size × Passes chuẩn")
+            )
+            blur_preset_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            blur_preset_box.set_valign(Gtk.Align.CENTER)
+            for bp in BLUR_PRESETS:
+                bsz, bps, blbl = int(bp["blur_size"]), int(bp["blur_passes"]), str(bp["label"])
+                bbtn = Gtk.Button(label=blbl)
+                bbtn.add_css_class("dec-preset-btn")
+                bbtn.connect("clicked", self._on_blur_preset_clicked, bsz, bps, blbl, win)
+                blur_preset_box.append(bbtn)
+                self._blur_preset_btns.append((bsz, bps, bbtn))
+            row_blur_presets.add_suffix(blur_preset_box)
+            self._dec_blur_detail_widgets.append(row_blur_presets)
+            group_blur.add(row_blur_presets)
+
+            add_dec_slider_row(
+                group_blur,
+                "blur_size",
+                "Độ rộng vùng mờ (Blur Size: 1 – 20)",
+                "Bán kính khuếch tán làm nhòe chi tiết ảnh nền phía sau kính",
+                marks=[2, 5, 10, 15],
+                is_blur_detail=True,
+            )
+            add_dec_slider_row(
+                group_blur,
+                "blur_passes",
+                "Số lớp lọc mịn (Blur Passes: 1 – 6)",
+                "Số lần lặp Kawase — tăng độ mịn của nền kính (giá trị cao tốn GPU hơn)",
+                marks=[1, 2, 3, 4],
+                is_blur_detail=True,
+            )
+            add_dec_slider_row(
+                group_blur,
+                "blur_brightness",
+                "Độ sáng nền mờ (Brightness: 0.30 – 1.50)",
+                "Điều chỉnh độ sáng/tối của phần ảnh nền xuyên qua kính mờ",
+                marks=[0.80, 1.00, 1.20],
+                is_blur_detail=True,
+            )
+            add_dec_slider_row(
+                group_blur,
+                "blur_vibrancy",
+                "Độ rực màu xuyên kính (Vibrancy: 0.00 – 1.00)",
+                "Tăng độ bão hòa màu wallpaper xuyên qua cửa sổ (hiệu ứng macOS vibrancy)",
+                marks=[0.00, 0.20, 0.50, 0.80],
+                is_blur_detail=True,
+            )
+            add_dec_slider_row(
+                group_blur,
+                "blur_contrast",
+                "Độ tương phản mờ (Contrast: 0.30 – 1.50)",
+                "Cân chỉnh độ tương phản vùng nền mờ phía sau",
+                marks=[0.80, 0.90, 1.10],
+                is_blur_detail=True,
+            )
+            add_dec_slider_row(
+                group_blur,
+                "blur_noise",
+                "Hạt nhiễu kính mờ (Noise: 0.000 – 0.100)",
+                "Thêm nhiễu nhẹ giúp nền mờ mịn hơn trên gradient tối",
+                marks=[0.00, 0.012, 0.05],
+                is_blur_detail=True,
+            )
+
+            row_xray = Adw.SwitchRow(
+                title=esc("Xuyên thấu wallpaper (Blur X-Ray)"),
+                subtitle=esc("Cho phép cửa sổ nổi nhìn trực tiếp ra wallpaper thay vì chồng mờ lên cửa sổ khác"),
+                active=True
+            )
+            row_xray.connect("notify::active", self._on_dec_switch_toggled, "blur_xray", win)
+            self._dec_switches["blur_xray"] = row_xray
+            self._dec_blur_detail_widgets.append(row_xray)
+            group_blur.add(row_xray)
+
+            row_ignore_op = Adw.SwitchRow(
+                title=esc("Blur bỏ qua Alpha cửa sổ (Ignore Opacity)"),
+                subtitle=esc("Giữ vùng mờ đầy đủ ngay cả khi cửa sổ dùng opacity rất thấp"),
+                active=True
+            )
+            row_ignore_op.connect("notify::active", self._on_dec_switch_toggled, "blur_ignore_opacity", win)
+            self._dec_switches["blur_ignore_opacity"] = row_ignore_op
+            self._dec_blur_detail_widgets.append(row_ignore_op)
+            group_blur.add(row_ignore_op)
+
+            row_round = Adw.ActionRow(
+                title=esc("Bo góc cửa sổ (Rounding)"),
+                subtitle=esc("Điều chỉnh bán kính bo tròn góc cửa sổ (0px – 30px)")
+            )
+            spin_round = Gtk.SpinButton.new_with_range(0, 30, 1)
+            spin_round.set_value(10)
+            spin_round.set_valign(Gtk.Align.CENTER)
+            spin_round.connect("value-changed", self._on_hypr_rounding_changed)
+            self._dec_spin_round = spin_round
+            row_round.add_suffix(spin_round)
+            group_blur.add(row_round)
+
+            page_hyprland.add(group_blur)
 
             # Animations List (3-column grid)
             anims = catalog.get("hyprland_animations", [])
@@ -1106,14 +1300,14 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
 
             # Populate live Hyprland & Power state asynchronously off the GTK main thread
             def _load_live_state_bg():
-                cur_rounding, cur_blur = self._get_hypr_decoration_state()
+                dec_payload = self.decorations_mgr.get_state()
+                dec_st = dec_payload.get("state", get_default_state())
                 power_st = self.power_mgr.get_status()
 
                 def _apply_live_state():
+                    self._sync_dec_ui_from_state(dec_st, sync_link_switch=True)
                     self._syncing_hypr_state = True
                     try:
-                        spin_round.set_value(cur_rounding)
-                        row_blur.set_active(bool(cur_blur))
                         row_auto_60hz.set_active(bool(power_st.get("auto_60hz", True)))
                     finally:
                         self._syncing_hypr_state = False
@@ -1282,14 +1476,25 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
                 )
                 t.start()
 
+        def _thumb_cache_path(self, file_path: str) -> Optional[Path]:
+            p = Path(file_path)
+            if not p.exists():
+                return None
+            stat = p.stat()
+            cache_key = hashlib.md5(f"{file_path}:{stat.st_mtime_ns}:{stat.st_size}".encode("utf-8")).hexdigest()
+            return self._thumb_cache_dir / f"{cache_key}.jpg"
+
+        @staticmethod
+        def _texture_from_file(path: Path) -> Optional[Any]:
+            if hasattr(Gdk.Texture, "new_from_filename"):
+                return Gdk.Texture.new_from_filename(str(path))
+            return Gdk.Texture.new_from_bytes(GLib.Bytes.new(path.read_bytes()))
+
         def _get_or_create_thumb_pixbuf(self, file_path: str) -> Optional[Any]:
             try:
-                p = Path(file_path)
-                if not p.exists():
+                cache_file = self._thumb_cache_path(file_path)
+                if cache_file is None:
                     return None
-                stat = p.stat()
-                cache_key = hashlib.md5(f"{file_path}:{stat.st_mtime_ns}:{stat.st_size}".encode("utf-8")).hexdigest()
-                cache_file = self._thumb_cache_dir / f"{cache_key}.jpg"
 
                 if cache_file.exists():
                     try:
@@ -1307,10 +1512,38 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
             except Exception:
                 return None
 
-        def _apply_pixbuf_batch(self, batch: List[Tuple[Gtk.Picture, Any]]) -> bool:
-            for pic_widget, pixbuf in batch:
+        def _get_or_create_thumb_paintable(self, file_path: str) -> Optional[Any]:
+            try:
+                cache_file = self._thumb_cache_path(file_path)
+                if cache_file is None:
+                    return None
+                if cache_file.exists():
+                    try:
+                        return self._texture_from_file(cache_file)
+                    except Exception:
+                        pass
+
+                pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(file_path, 240, 135, False)
+                if pixbuf is None:
+                    return None
                 try:
-                    texture = Gdk.Texture.new_for_pixbuf(pixbuf)
+                    pixbuf.savev(str(cache_file), "jpeg", ["quality"], ["85"])
+                    if cache_file.exists():
+                        return self._texture_from_file(cache_file)
+                except Exception:
+                    pass
+                return Gdk.Texture.new_for_pixbuf(pixbuf)
+            except Exception:
+                return None
+
+        def _apply_pixbuf_batch(self, batch: List[Tuple[Gtk.Picture, Any]]) -> bool:
+            for pic_widget, media in batch:
+                try:
+                    texture = (
+                        media
+                        if isinstance(media, Gdk.Paintable)
+                        else Gdk.Texture.new_for_pixbuf(media)
+                    )
                     pic_widget.set_paintable(texture)
                 except Exception:
                     pass
@@ -1318,13 +1551,15 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
 
         def _load_thumbnails_async(self, tasks: List[Tuple[Gtk.Picture, str]]):
             batch: List[Tuple[Gtk.Picture, Any]] = []
+            batch_limit = 9
             for pic_widget, file_path in tasks:
-                pixbuf = self._get_or_create_thumb_pixbuf(file_path)
-                if pixbuf is not None:
-                    batch.append((pic_widget, pixbuf))
-                    if len(batch) >= 16:
+                media = self._get_or_create_thumb_paintable(file_path)
+                if media is not None:
+                    batch.append((pic_widget, media))
+                    if len(batch) >= batch_limit:
                         GLib.idle_add(self._apply_pixbuf_batch, batch)
                         batch = []
+                        batch_limit = 24
             if batch:
                 GLib.idle_add(self._apply_pixbuf_batch, batch)
 
@@ -1332,6 +1567,13 @@ def launch_gtk_app(workspace_root: Optional[str] = None, target_home: Optional[s
             if self._filter_timeout_id is not None:
                 GLib.source_remove(self._filter_timeout_id)
                 self._filter_timeout_id = None
+            self._cancel_dec_timers()
+            if self._dec_dirty_persist:
+                self._dec_dirty_persist = False
+                try:
+                    self.decorations_mgr.persist_state(dict(self._dec_state))
+                except Exception:
+                    pass
             return False
 
         def _run_quick_tool(self, rel_path: str, win):

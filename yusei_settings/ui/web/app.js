@@ -115,6 +115,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initBackupButtons();
   initKeybindsAndMaintenance();
   initPowerManagement();
+  initHyprDecorations();
   fetchStateAndCatalog();
 });
 
@@ -152,6 +153,8 @@ function initNavigation() {
         fetchKeybinds();
       } else if (targetPageId === "page-maintenance") {
         fetchSystemStatus();
+      } else if (targetPageId === "page-hyprland") {
+        fetchHyprDecorations();
       } else if (targetPageId === "page-power") {
         fetchPowerStatus();
         powerPollInterval = setInterval(fetchPowerStatus, 5000);
@@ -1260,4 +1263,221 @@ async function toggleRefreshRateManual() {
   } finally {
     if (btnToggleHz) btnToggleHz.disabled = false;
   }
+}
+
+// -----------------------------------------------------------------------------
+// 10. Hyprland Frosted Glass, Opacity & Blur Sliders
+// -----------------------------------------------------------------------------
+let hyprDecState = {
+  rounding: 10,
+  active_opacity: 0.90,
+  inactive_opacity: 0.90,
+  fullscreen_opacity: 1.00,
+  override_all_apps: true,
+  blur_enabled: true,
+  blur_size: 5,
+  blur_passes: 2,
+  blur_brightness: 1.00,
+  blur_contrast: 0.89,
+  blur_vibrancy: 0.17,
+  blur_noise: 0.012,
+  blur_xray: true,
+  blur_ignore_opacity: true,
+};
+let hyprDecDecimals = {
+  rounding: 0,
+  active_opacity: 2,
+  inactive_opacity: 2,
+  fullscreen_opacity: 2,
+  blur_size: 0,
+  blur_passes: 0,
+  blur_brightness: 2,
+  blur_contrast: 2,
+  blur_vibrancy: 2,
+  blur_noise: 3,
+};
+let hyprDecPreviewTimer = null;
+
+function formatDecValue(key, val) {
+  const dec = hyprDecDecimals[key] ?? 2;
+  const num = Number(val);
+  if (Number.isNaN(num)) return String(val);
+  return dec === 0 ? String(Math.round(num)) : num.toFixed(dec);
+}
+
+function renderHyprDecUi(syncLinkSwitch = false) {
+  Object.keys(hyprDecDecimals).forEach(key => {
+    const slider = document.getElementById(`dec-slider-${key}`);
+    const badge = document.getElementById(`dec-val-${key}`);
+    if (slider && hyprDecState[key] !== undefined) {
+      slider.value = formatDecValue(key, hyprDecState[key]);
+    }
+    if (badge && hyprDecState[key] !== undefined) {
+      badge.textContent = formatDecValue(key, hyprDecState[key]);
+    }
+  });
+
+  ["override_all_apps", "blur_enabled", "blur_xray", "blur_ignore_opacity"].forEach(key => {
+    const sw = document.getElementById(`dec-switch-${key}`);
+    if (sw && hyprDecState[key] !== undefined) {
+      sw.checked = Boolean(hyprDecState[key]);
+    }
+  });
+
+  const linkSw = document.getElementById("toggle-link-opacity");
+  if (syncLinkSwitch && linkSw) {
+    linkSw.checked = Math.abs(Number(hyprDecState.active_opacity) - Number(hyprDecState.inactive_opacity)) < 0.005;
+  }
+
+  const blurOn = Boolean(hyprDecState.blur_enabled);
+  document.querySelectorAll("#page-hyprland .blur-detail-row").forEach(row => {
+    row.classList.toggle("dimmed", !blurOn);
+  });
+
+  const linked = linkSw ? linkSw.checked : false;
+  const act = Number(hyprDecState.active_opacity);
+  const inact = Number(hyprDecState.inactive_opacity);
+  document.querySelectorAll("#opacity-presets-row .dec-preset-chip").forEach(btn => {
+    const pv = Number(btn.dataset.opacity);
+    const active = Math.abs(act - pv) < 0.005 && (!linked || Math.abs(inact - pv) < 0.005);
+    btn.classList.toggle("active", active);
+  });
+
+  const bsz = Math.round(Number(hyprDecState.blur_size));
+  const bps = Math.round(Number(hyprDecState.blur_passes));
+  document.querySelectorAll("#blur-presets-row .dec-preset-chip").forEach(btn => {
+    const match = blurOn && Number(btn.dataset.blurSize) === bsz && Number(btn.dataset.blurPasses) === bps;
+    btn.classList.toggle("active", match);
+  });
+}
+
+async function fetchHyprDecorations() {
+  try {
+    const data = await apiFetch("/api/hypr/decorations");
+    if (data && data.state) {
+      hyprDecState = { ...hyprDecState, ...data.state };
+      renderHyprDecUi(true);
+    }
+  } catch (err) {
+    console.error("Failed to fetch Hyprland decorations:", err);
+  }
+}
+
+async function postHyprDecorations(persist = true) {
+  try {
+    const res = await apiFetch("/api/hypr/decorations", {
+      method: "POST",
+      body: JSON.stringify({ ...hyprDecState, persist }),
+    });
+    if (res && res.state) {
+      hyprDecState = { ...hyprDecState, ...res.state };
+    }
+  } catch (err) {
+    showToast(`Lỗi cập nhật hiệu ứng mờ nền: ${err.message}`, false, true);
+  }
+}
+
+function scheduleHyprDecPreview() {
+  if (hyprDecPreviewTimer) clearTimeout(hyprDecPreviewTimer);
+  hyprDecPreviewTimer = setTimeout(() => {
+    hyprDecPreviewTimer = null;
+    postHyprDecorations(false);
+  }, 45);
+}
+
+function initHyprDecorations() {
+  document.querySelectorAll("#page-hyprland .dec-range").forEach(slider => {
+    const key = slider.dataset.decKey;
+    if (!key) return;
+
+    const handleSlider = (isFinal) => {
+      const dec = hyprDecDecimals[key] ?? 2;
+      const val = dec === 0 ? parseInt(slider.value, 10) : Number(parseFloat(slider.value).toFixed(dec));
+      hyprDecState[key] = val;
+
+      const linkSw = document.getElementById("toggle-link-opacity");
+      if (key === "active_opacity" && linkSw && linkSw.checked) {
+        hyprDecState.inactive_opacity = val;
+      }
+      renderHyprDecUi(false);
+
+      if (isFinal) {
+        if (hyprDecPreviewTimer) {
+          clearTimeout(hyprDecPreviewTimer);
+          hyprDecPreviewTimer = null;
+        }
+        postHyprDecorations(true);
+      } else {
+        scheduleHyprDecPreview();
+      }
+    };
+
+    slider.addEventListener("input", () => handleSlider(false));
+    slider.addEventListener("change", () => handleSlider(true));
+  });
+
+  document.querySelectorAll("#page-hyprland [data-dec-switch]").forEach(sw => {
+    const key = sw.dataset.decSwitch;
+    sw.addEventListener("change", () => {
+      hyprDecState[key] = Boolean(sw.checked);
+      renderHyprDecUi(false);
+      postHyprDecorations(true);
+    });
+  });
+
+  const linkSw = document.getElementById("toggle-link-opacity");
+  if (linkSw) {
+    linkSw.addEventListener("change", () => {
+      if (linkSw.checked) {
+        hyprDecState.inactive_opacity = hyprDecState.active_opacity;
+        renderHyprDecUi(false);
+        postHyprDecorations(true);
+      } else {
+        renderHyprDecUi(false);
+      }
+    });
+  }
+
+  document.querySelectorAll("#opacity-presets-row .dec-preset-chip").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const pv = Number(btn.dataset.opacity);
+      hyprDecState.active_opacity = pv;
+      const linkChecked = document.getElementById("toggle-link-opacity")?.checked;
+      if (linkChecked) {
+        hyprDecState.inactive_opacity = pv;
+      }
+      renderHyprDecUi(false);
+      postHyprDecorations(true);
+      showToast(`Đã đặt độ trong suốt nền: ${pv.toFixed(2)}`);
+    });
+  });
+
+  document.querySelectorAll("#blur-presets-row .dec-preset-chip").forEach(btn => {
+    btn.addEventListener("click", () => {
+      hyprDecState.blur_enabled = true;
+      hyprDecState.blur_size = parseInt(btn.dataset.blurSize, 10);
+      hyprDecState.blur_passes = parseInt(btn.dataset.blurPasses, 10);
+      renderHyprDecUi(false);
+      postHyprDecorations(true);
+      showToast(`Đã chọn Blur: ${btn.textContent.trim()}`);
+    });
+  });
+
+  const btnReset = document.getElementById("btn-reset-hypr-decorations");
+  if (btnReset) {
+    btnReset.addEventListener("click", async () => {
+      try {
+        const res = await apiFetch("/api/hypr/decorations/reset", { method: "POST" });
+        if (res && res.state) {
+          hyprDecState = { ...hyprDecState, ...res.state };
+          renderHyprDecUi(true);
+        }
+        showToast("Đã khôi phục mặc định hiệu ứng mờ nền & bo góc!");
+      } catch (err) {
+        showToast(`Lỗi khôi phục mặc định: ${err.message}`, false, true);
+      }
+    });
+  }
+
+  fetchHyprDecorations();
 }

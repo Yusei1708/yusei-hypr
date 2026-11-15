@@ -10,6 +10,7 @@ from .state import StateManager
 from .safety import SafetyEngine
 from .preview import PreviewEngine
 from .power import PowerManager
+from .decorations import DecorationsManager
 
-__all__ = ["DiscoveryEngine", "StateManager", "SafetyEngine", "PreviewEngine", "PowerManager"]
+__all__ = ["DiscoveryEngine", "StateManager", "SafetyEngine", "PreviewEngine", "PowerManager", "DecorationsManager"]
 

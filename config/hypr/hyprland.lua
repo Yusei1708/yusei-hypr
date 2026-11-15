@@ -1087,6 +1087,14 @@ load_custom_settings(home .. "/.config/hypr/UserConfigs/UserDecorations.conf")
 load_custom_settings(home .. "/.config/hypr/UserConfigs/UserSettings.conf")
 load_custom_settings(home .. "/.config/hypr/userprefs.conf")
 
+-- Yusei Settings persisted global opacity override (when enabled by user)
+local yusei_dec_lua = home .. "/.config/hypr/UserConfigs/yusei-decorations.lua"
+local f_yusei_dec = io.open(yusei_dec_lua, "r")
+if f_yusei_dec then
+    f_yusei_dec:close()
+    pcall(dofile, yusei_dec_lua)
+end
+
 local user_lua = home .. "/.config/hypr/userprefs.lua"
 local f_lua = io.open(user_lua, "r")
 if f_lua then

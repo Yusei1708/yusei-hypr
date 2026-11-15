@@ -14,6 +14,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from yusei_settings.core.decorations import DecorationsManager
 from yusei_settings.core.discovery import DiscoveryEngine
 from yusei_settings.core.keybinds import KeybindParser
 from yusei_settings.core.power import PowerManager
@@ -44,6 +45,7 @@ class SettingsRequestHandler(BaseHTTPRequestHandler):
         self.state_mgr = StateManager(self.target_home)
         self.safety_engine = SafetyEngine(self.target_home)
         self.power_mgr = PowerManager(self.workspace_root, self.target_home)
+        self.decorations_mgr = DecorationsManager(self.workspace_root, self.target_home)
 
         kb_candidates = [
             self.home_dir / ".config" / "hypr" / "keybinds.conf",
@@ -403,6 +405,13 @@ class SettingsRequestHandler(BaseHTTPRequestHandler):
             status = self.power_mgr.get_status()
             return self.send_json(status)
 
+        # API: Hyprland Decorations / Blur / Opacity State
+        if path == "/api/hypr/decorations":
+            try:
+                return self.send_json(self.decorations_mgr.get_state())
+            except Exception as exc:
+                return self.send_json({"success": False, "message": str(exc)}, status=500)
+
         self.send_error(404, "Endpoint not found")
 
     def _check_system_updates(self) -> Dict[str, Any]:
@@ -673,6 +682,28 @@ class SettingsRequestHandler(BaseHTTPRequestHandler):
                 result = self.power_mgr.toggle_hz()
                 status = 200 if result.get("success") else 500
                 return self.send_json(result, status=status)
+            except Exception as exc:
+                return self.send_json({"success": False, "message": str(exc)}, status=500)
+
+        # API: Update Hyprland Blur / Opacity / Rounding Decorations
+        if path == "/api/hypr/decorations":
+            try:
+                if not isinstance(payload, dict):
+                    raise ValueError("Payload phải là JSON object.")
+                raw_persist = payload.get("persist", True)
+                persist = PowerManager._parse_strict_bool(raw_persist, "persist")
+                result = self.decorations_mgr.apply(payload, persist=persist, live=True)
+                return self.send_json(result)
+            except ValueError as exc:
+                return self.send_json({"success": False, "message": str(exc)}, status=400)
+            except Exception as exc:
+                return self.send_json({"success": False, "message": str(exc)}, status=500)
+
+        # API: Reset Hyprland Decorations to Defaults
+        if path == "/api/hypr/decorations/reset":
+            try:
+                result = self.decorations_mgr.reset_defaults(persist=True, live=True)
+                return self.send_json(result)
             except Exception as exc:
                 return self.send_json({"success": False, "message": str(exc)}, status=500)
 

@@ -101,41 +101,215 @@
         <div class="page-header">
           <div class="page-title">
             <h1>Hyprland Compositor</h1>
-            <p>Quản lý hiệu ứng cửa sổ, bo góc, blur, và cấu hình hiển thị</p>
+            <p>Điều chỉnh linh hoạt độ trong suốt nền, hiệu ứng kính mờ Dual-pass Kawase Blur và bo góc cửa sổ</p>
+          </div>
+          <button class="btn btn-secondary" id="btn-reset-hypr-decorations">Khôi phục mặc định</button>
+        </div>
+
+        <div class="settings-section-card">
+          <div class="settings-section-header">
+            <h3>Độ Trong Suốt & Kính Mờ (Frosted Glass)</h3>
+            <p>Kéo thanh trượt để chỉnh độ trong suốt nền cửa sổ (0.80, 0.90, 1.00...)</p>
+          </div>
+
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Mức độ mờ nhanh (Quick Presets)</h4>
+              <p>Áp dụng nhanh mức opacity phổ biến hoặc trượt chi tiết bên dưới</p>
+            </div>
+            <div class="dec-preset-row" id="opacity-presets-row">
+              <button type="button" class="dec-preset-chip" data-opacity="0.70">0.70</button>
+              <button type="button" class="dec-preset-chip" data-opacity="0.80">0.80</button>
+              <button type="button" class="dec-preset-chip" data-opacity="0.85">0.85</button>
+              <button type="button" class="dec-preset-chip" data-opacity="0.90">0.90</button>
+              <button type="button" class="dec-preset-chip" data-opacity="0.95">0.95</button>
+              <button type="button" class="dec-preset-chip" data-opacity="1.00">1.00</button>
+            </div>
+          </div>
+
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Đồng bộ Inactive theo Active</h4>
+              <p>Giữ các cửa sổ nền không focus cùng độ mờ với cửa sổ đang chọn</p>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="toggle-link-opacity" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Độ trong suốt cửa sổ Active (0.30 – 1.00)</h4>
+              <p>Độ đục của cửa sổ đang sử dụng (0.80 = kính mờ rõ, 0.90 = mặc định)</p>
+            </div>
+            <div class="dec-slider-wrap">
+              <input type="range" class="dec-range" id="dec-slider-active_opacity" data-dec-key="active_opacity" min="0.30" max="1.00" step="0.01" value="0.90">
+              <span class="dec-val-badge" id="dec-val-active_opacity">0.90</span>
+            </div>
+          </div>
+
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Độ trong suốt cửa sổ Inactive (0.30 – 1.00)</h4>
+              <p>Độ đục của cửa sổ nền phía sau</p>
+            </div>
+            <div class="dec-slider-wrap">
+              <input type="range" class="dec-range" id="dec-slider-inactive_opacity" data-dec-key="inactive_opacity" min="0.30" max="1.00" step="0.01" value="0.90">
+              <span class="dec-val-badge" id="dec-val-inactive_opacity">0.90</span>
+            </div>
+          </div>
+
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Độ trong suốt toàn màn hình (Fullscreen)</h4>
+              <p>Độ đục khi ứng dụng chạy toàn màn hình (1.00 giữ ảnh sắc nét)</p>
+            </div>
+            <div class="dec-slider-wrap">
+              <input type="range" class="dec-range" id="dec-slider-fullscreen_opacity" data-dec-key="fullscreen_opacity" min="0.30" max="1.00" step="0.01" value="1.00">
+              <span class="dec-val-badge" id="dec-val-fullscreen_opacity">1.00</span>
+            </div>
+          </div>
+
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Ghi đè toàn bộ ứng dụng (kể cả Video/Media)</h4>
+              <p>Áp dụng đồng bộ độ mờ cho mọi app (Antigravity, Terminal, Browser, Video...)</p>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="dec-switch-override_all_apps" data-dec-switch="override_all_apps" checked>
+              <span class="slider"></span>
+            </label>
           </div>
         </div>
 
         <div class="settings-section-card">
           <div class="settings-section-header">
-            <h3>Hiệu Ứng & Bo Góc (Decorations)</h3>
-            <p>Các thông số giao diện End-4 Material 3</p>
+            <h3>Làm Mờ Nền (Dual-pass Kawase Blur) &amp; Bo Góc</h3>
+            <p>Tinh chỉnh bán kính mờ, số lớp lọc, độ sáng, độ rực màu xuyên kính và bo góc cửa sổ</p>
           </div>
+
           <div class="settings-row">
             <div class="row-label">
-              <h4>Bo góc cửa sổ (Corner Rounding)</h4>
-              <p>Mặc định 16px theo chuẩn Material 3</p>
-            </div>
-            <span class="card-badge active-badge">16px</span>
-          </div>
-          <div class="settings-row">
-            <div class="row-label">
-              <h4>Làm mờ nền (Dual-pass Kawase Blur)</h4>
-              <p>Bật hiệu ứng mờ cho Rofi, Waybar và SwayNC</p>
+              <h4>Bật làm mờ nền (Dual-pass Kawase Blur)</h4>
+              <p>Bật hiệu ứng kính mờ cho cửa sổ, Rofi, Waybar và SwayNC</p>
             </div>
             <label class="toggle-switch">
-              <input type="checkbox" checked disabled>
+              <input type="checkbox" id="dec-switch-blur_enabled" data-dec-switch="blur_enabled" checked>
               <span class="slider"></span>
             </label>
           </div>
-          <div class="settings-row">
+
+          <div class="settings-row blur-detail-row">
             <div class="row-label">
-              <h4>Bóng đổ cửa sổ (Drop Shadows)</h4>
-              <p>Màu bóng tối 25% với bán kính khuếch tán 14px</p>
+              <h4>Cường độ Blur nhanh</h4>
+              <p>Áp dụng nhanh cặp Size × Passes chuẩn</p>
+            </div>
+            <div class="dec-preset-row" id="blur-presets-row">
+              <button type="button" class="dec-preset-chip" data-blur-size="2" data-blur-passes="1">Nhẹ (2×1)</button>
+              <button type="button" class="dec-preset-chip" data-blur-size="5" data-blur-passes="2">Mặc định (5×2)</button>
+              <button type="button" class="dec-preset-chip" data-blur-size="6" data-blur-passes="3">Mịn (6×3)</button>
+              <button type="button" class="dec-preset-chip" data-blur-size="10" data-blur-passes="4">Sâu (10×4)</button>
+            </div>
+          </div>
+
+          <div class="settings-row blur-detail-row">
+            <div class="row-label">
+              <h4>Độ rộng vùng mờ (Blur Size: 1 – 20)</h4>
+              <p>Bán kính khuếch tán làm nhòe ảnh nền sau kính</p>
+            </div>
+            <div class="dec-slider-wrap">
+              <input type="range" class="dec-range" id="dec-slider-blur_size" data-dec-key="blur_size" min="1" max="20" step="1" value="5">
+              <span class="dec-val-badge" id="dec-val-blur_size">5</span>
+            </div>
+          </div>
+
+          <div class="settings-row blur-detail-row">
+            <div class="row-label">
+              <h4>Số lớp lọc mịn (Blur Passes: 1 – 6)</h4>
+              <p>Số lần lọc Kawase (tăng độ mịn kính)</p>
+            </div>
+            <div class="dec-slider-wrap">
+              <input type="range" class="dec-range" id="dec-slider-blur_passes" data-dec-key="blur_passes" min="1" max="6" step="1" value="2">
+              <span class="dec-val-badge" id="dec-val-blur_passes">2</span>
+            </div>
+          </div>
+
+          <div class="settings-row blur-detail-row">
+            <div class="row-label">
+              <h4>Độ sáng nền mờ (Brightness: 0.30 – 1.50)</h4>
+              <p>Độ sáng/tối phần wallpaper xuyên qua kính mờ</p>
+            </div>
+            <div class="dec-slider-wrap">
+              <input type="range" class="dec-range" id="dec-slider-blur_brightness" data-dec-key="blur_brightness" min="0.30" max="1.50" step="0.01" value="1.00">
+              <span class="dec-val-badge" id="dec-val-blur_brightness">1.00</span>
+            </div>
+          </div>
+
+          <div class="settings-row blur-detail-row">
+            <div class="row-label">
+              <h4>Độ rực màu xuyên kính (Vibrancy: 0.00 – 1.00)</h4>
+              <p>Độ bão hòa màu nền phía sau cửa sổ</p>
+            </div>
+            <div class="dec-slider-wrap">
+              <input type="range" class="dec-range" id="dec-slider-blur_vibrancy" data-dec-key="blur_vibrancy" min="0.00" max="1.00" step="0.01" value="0.17">
+              <span class="dec-val-badge" id="dec-val-blur_vibrancy">0.17</span>
+            </div>
+          </div>
+
+          <div class="settings-row blur-detail-row">
+            <div class="row-label">
+              <h4>Độ tương phản mờ (Contrast: 0.30 – 1.50)</h4>
+              <p>Cân chỉnh tương phản vùng mờ phía sau</p>
+            </div>
+            <div class="dec-slider-wrap">
+              <input type="range" class="dec-range" id="dec-slider-blur_contrast" data-dec-key="blur_contrast" min="0.30" max="1.50" step="0.01" value="0.89">
+              <span class="dec-val-badge" id="dec-val-blur_contrast">0.89</span>
+            </div>
+          </div>
+
+          <div class="settings-row blur-detail-row">
+            <div class="row-label">
+              <h4>Hạt nhiễu kính mờ (Noise: 0.000 – 0.100)</h4>
+              <p>Nhiễu hạt mịn tránh banding trên nền tối</p>
+            </div>
+            <div class="dec-slider-wrap">
+              <input type="range" class="dec-range" id="dec-slider-blur_noise" data-dec-key="blur_noise" min="0.000" max="0.100" step="0.005" value="0.012">
+              <span class="dec-val-badge" id="dec-val-blur_noise">0.012</span>
+            </div>
+          </div>
+
+          <div class="settings-row blur-detail-row">
+            <div class="row-label">
+              <h4>Xuyên thấu wallpaper (Blur X-Ray)</h4>
+              <p>Cửa sổ nổi nhìn thẳng ra wallpaper phía sau</p>
             </div>
             <label class="toggle-switch">
-              <input type="checkbox" checked disabled>
+              <input type="checkbox" id="dec-switch-blur_xray" data-dec-switch="blur_xray" checked>
               <span class="slider"></span>
             </label>
+          </div>
+
+          <div class="settings-row blur-detail-row">
+            <div class="row-label">
+              <h4>Blur bỏ qua Alpha cửa sổ (Ignore Opacity)</h4>
+              <p>Giữ nền mờ ổn định ngay cả khi cửa sổ trong suốt cao</p>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="dec-switch-blur_ignore_opacity" data-dec-switch="blur_ignore_opacity" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="settings-row">
+            <div class="row-label">
+              <h4>Bo góc cửa sổ (Corner Rounding: 0 – 30px)</h4>
+              <p>Bán kính bo tròn góc cửa sổ (mặc định 10px)</p>
+            </div>
+            <div class="dec-slider-wrap">
+              <input type="range" class="dec-range" id="dec-slider-rounding" data-dec-key="rounding" min="0" max="30" step="1" value="10">
+              <span class="dec-val-badge" id="dec-val-rounding">10</span>
+            </div>
           </div>
         </div>
 
